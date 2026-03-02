@@ -1,6 +1,6 @@
 <div align="center">
   <img src="src-tauri/icons/128x128.png" alt="JD Launcher Icon" width="128" />
-  <h1>JD Launcher</h1>
+  <h1>JD Launcher (under development)</h1>
   <p>A modern, lightweight, and blazingly fast Minecraft launcher built with Rust and React.</p>
 </div>
 

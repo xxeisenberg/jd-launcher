@@ -81,8 +81,8 @@ export function ConsoleDrawer({ visible, onClose }: ConsoleDrawerProps) {
 
   return (
     <div
-      className={`border-t border-border bg-card flex flex-col transition-all ${
-        expanded ? "h-[70%]" : "h-56"
+      className={`absolute bottom-0 inset-x-0 z-40 border-t border-border bg-card flex flex-col shadow-2xl transition-all ${
+        expanded ? "h-[70vh]" : "h-56"
       }`}
     >
       {/* toolbar */}
@@ -153,15 +153,17 @@ export function ConsoleDrawer({ visible, onClose }: ConsoleDrawerProps) {
       <div
         ref={containerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-2 font-mono text-xs leading-5"
+        className="flex-1 overflow-y-auto min-h-0 px-4 py-2 font-mono text-xs leading-5"
       >
         {filteredLogs.map((log, i) => (
           <div
             key={i}
             className={`whitespace-pre-wrap ${
-              log.src === "stderr"
-                ? "text-destructive/80"
-                : "text-muted-foreground"
+              log.line.includes("WARN")
+                ? "text-yellow-600 dark:text-yellow-400"
+                : log.src === "stderr" || log.line.includes("ERROR")
+                  ? "text-destructive/80"
+                  : "text-muted-foreground"
             }`}
           >
             {log.line}

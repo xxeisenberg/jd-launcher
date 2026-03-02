@@ -484,9 +484,24 @@ function App() {
         >
           <span className="text-xs text-muted-foreground">Home</span>
           <ChevronRightIcon className="w-3 h-3 text-muted-foreground/50" />
-          <span className="text-xs font-medium">
-            {VIEW_LABELS[currentView]}
-          </span>
+          {currentView === "instance-view" && activeInstance ? (
+            <>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={() => setCurrentView("instances")}
+              >
+                Instances
+              </button>
+              <ChevronRightIcon className="w-3 h-3 text-muted-foreground/50" />
+              <span className="text-xs font-medium truncate max-w-[200px]">
+                {activeInstance.name}
+              </span>
+            </>
+          ) : (
+            <span className="text-xs font-medium">
+              {VIEW_LABELS[currentView]}
+            </span>
+          )}
           <div className="flex-1" />
 
           {/* instances toolbar */}
@@ -529,7 +544,7 @@ function App() {
         </div>
 
         {/* content */}
-        <div className="flex-1 overflow-hidden flex flex-col">
+        <div className="flex-1 overflow-hidden flex flex-col relative">
           {/* error banner */}
           {error && (
             <div className="mx-6 mt-3 flex items-center gap-2 px-3 py-2 rounded-md bg-destructive/10 text-destructive text-sm">
@@ -634,7 +649,7 @@ function App() {
         {(isDownloading || launching) && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
             <div className="bg-card border border-border rounded-xl p-8 flex flex-col items-center gap-4 min-w-[300px] shadow-xl">
-              <div className="spinner !w-8 !h-8" />
+              <div className="spinner w-8! h-8!" />
               {isDownloading && progress ? (
                 <>
                   <p className="text-sm font-medium">
@@ -720,7 +735,7 @@ function App() {
                 {deviceCodeInfo.user_code}
               </div>
             </div>
-            <div className="spinner mx-auto !w-5 !h-5" />
+            <div className="spinner mx-auto w-5! h-5!" />
             <p className="text-xs text-muted-foreground">
               Waiting for authorization…
             </p>
