@@ -141,10 +141,10 @@ export function InstanceViewPage({
             </TabsTrigger>
           </TabsList>
 
-          <div className="flex-1 mt-6 overflow-hidden min-h-0 border rounded-xl bg-card">
+          <div className="flex-1 mt-6 overflow-hidden min-h-0 border rounded-xl bg-card relative">
             <TabsContent
               value="mods"
-              className="h-full m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
+              className="absolute inset-0 m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
                 <div className="p-4 sm:p-6 flex flex-col gap-1">
@@ -177,7 +177,7 @@ export function InstanceViewPage({
 
             <TabsContent
               value="shaders"
-              className="h-full m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
+              className="absolute inset-0 m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
                 <div className="p-4 sm:p-6 flex flex-col gap-1">
@@ -210,7 +210,7 @@ export function InstanceViewPage({
 
             <TabsContent
               value="settings"
-              className="h-full m-0 focus-visible:outline-none data-[state=inactive]:hidden"
+              className="absolute inset-0 m-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
                 <div className="p-6">
