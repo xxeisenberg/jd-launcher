@@ -1,0 +1,36 @@
+<svg width="1024" height="1024" viewBox="78.79 52 354.42 408" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .shape { 
+        stroke: #F3F5F7; 
+        stroke-width: 8; 
+        stroke-linejoin: round; 
+        stroke-linecap: round; 
+      }
+    </style>
+  </defs>
+  <g id="top-face">
+    <path class="shape" d="M 256 56 L 82.79 156 L 160.73 156 L 256 101 Z" fill="#5A7A91"/>
+    <path class="shape" d="M 82.79 156 L 256 256 L 256 211 L 160.73 156 Z" fill="#5A7A91"/>
+    <path class="shape" d="M 256 56 L 256 101 L 351.27 156 L 429.21 156 Z" fill="#425F75"/>
+    <path class="shape" d="M 429.21 156 L 351.27 156 L 256 211 L 256 256 Z" fill="#425F75"/>
+    <path class="shape" d="M 256 101 L 160.73 156 L 256 211 Z" fill="#365064"/>
+    <path class="shape" d="M 256 101 L 256 211 L 351.27 156 Z" fill="#273D4F"/>
+  </g>
+  <g id="left-face">
+    <path class="shape" d="M 82.79 156 L 256 256 L 217.03 278.5 L 121.77 223.5 Z" fill="#598B8E"/>
+    <path class="shape" d="M 82.79 356 L 82.79 156 L 121.77 223.5 L 121.77 333.5 Z" fill="#42787C"/>
+    <path class="shape" d="M 256 256 L 256 456 L 217.03 388.5 L 217.03 278.5 Z" fill="#2C5E62"/>
+    <path class="shape" d="M 256 456 L 82.79 356 L 121.77 333.5 L 217.03 388.5 Z" fill="#2C5E62"/>
+    <path class="shape" d="M 121.77 333.5 L 121.77 223.5 L 217.03 278.5 Z" fill="#1E4347"/>
+    <path class="shape" d="M 121.77 333.5 L 217.03 278.5 L 217.03 388.5 Z" fill="#42787C"/>
+  </g>
+  <g id="right-face">
+    <path class="shape" d="M 256 256 L 429.21 156 L 390.23 223.5 L 294.97 278.5 Z" fill="#41607B"/>
+    <path class="shape" d="M 429.21 156 L 429.21 356 L 390.23 333.5 L 390.23 223.5 Z" fill="#2A425A"/>
+    <path class="shape" d="M 256 456 L 256 256 L 294.97 278.5 L 294.97 388.5 Z" fill="#2A425A"/>
+    <path class="shape" d="M 429.21 356 L 256 456 L 294.97 388.5 L 390.23 333.5 Z" fill="#1C2E40"/>
+    <path class="shape" d="M 294.97 278.5 L 390.23 223.5 L 390.23 333.5 Z" fill="#1C2E40"/>
+    <path class="shape" d="M 294.97 278.5 L 390.23 333.5 L 294.97 388.5 Z" fill="#34506B"/>
+  </g>
+</svg>
