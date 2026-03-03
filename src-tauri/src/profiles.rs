@@ -45,10 +45,11 @@ impl Profile {
         let config = load_profiles();
         let settings = config.settings;
         let id = Uuid::new_v4().to_string();
-        let default_game_dir = std::path::PathBuf::from(&settings.game_root_directory)
-            .join(format!("instances/{}", id))
-            .to_string_lossy()
-            .to_string();
+        let default_game_dir =
+            std::path::PathBuf::from(crate::helper::expand_path(&settings.game_root_directory))
+                .join(format!("instances/{}", id))
+                .to_string_lossy()
+                .to_string();
         Profile {
             id,
             name: name.into(),

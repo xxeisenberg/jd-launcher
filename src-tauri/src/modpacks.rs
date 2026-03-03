@@ -336,10 +336,11 @@ pub async fn install_modpack(
     let config = load_profiles();
     let settings = config.settings;
     let profile_id = Uuid::new_v4().to_string();
-    let game_dir = std::path::PathBuf::from(&settings.game_root_directory)
-        .join(format!("instances/{}", profile_id))
-        .to_string_lossy()
-        .to_string();
+    let game_dir =
+        std::path::PathBuf::from(crate::helper::expand_path(&settings.game_root_directory))
+            .join(format!("instances/{}", profile_id))
+            .to_string_lossy()
+            .to_string();
 
     std::fs::create_dir_all(&game_dir).map_err(|e| format!("Failed to create game dir: {}", e))?;
 

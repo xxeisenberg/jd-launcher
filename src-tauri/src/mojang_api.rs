@@ -231,9 +231,7 @@ pub async fn download_version_and_run(
     // Shared assets
     let shared_dir = crate::helper::get_app_dir().to_string_lossy().to_string();
     // Game directory
-    let game_dir = std::path::PathBuf::from(&profile.game_dir)
-        .to_string_lossy()
-        .to_string();
+    let game_dir = crate::helper::expand_path(&profile.game_dir);
     std::fs::create_dir_all(&game_dir).map_err(|e| format!("Failed to create game dir: {}", e))?;
 
     // Client jar
@@ -775,6 +773,7 @@ pub async fn download_version_and_run(
 
     // Launch
     let mut mc_process = std::process::Command::new(&java_cmd);
+    mc_process.current_dir(&game_dir);
 
     // JVM args from profile
     for arg in profile.jvm_args.split_whitespace() {

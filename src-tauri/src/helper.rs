@@ -6,20 +6,19 @@ use std::{
 use tokio::fs;
 
 pub fn get_app_dir() -> PathBuf {
+    let home = || PathBuf::from(shellexpand::tilde("~").as_ref());
     if cfg!(windows) {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".mc")
+        dirs::data_dir().unwrap_or_else(home).join(".mc")
     } else if cfg!(target_os = "macos") {
-        dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".mc")
+        dirs::data_dir().unwrap_or_else(home).join(".mc")
     } else {
-        // Linux and others - use ~/.mc directly for compatibility
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".mc")
+        dirs::home_dir().unwrap_or_else(home).join(".mc")
     }
+}
+
+// Expand ~ in user-provided paths
+pub fn expand_path(path: &str) -> String {
+    shellexpand::tilde(path).into_owned()
 }
 
 pub async fn download_file(url: &str, target_path: &str, sha1: &str) -> Result<(), String> {
@@ -119,4 +118,12 @@ pub fn verify_file(file_path: &str, hash: &str) -> Result<bool, String> {
     let result = hasher.finalize();
     let hex_result = format!("{:x}", result);
     Ok(hex_result == hash)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn get_system_memory_mb() -> u32 {
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    (sys.total_memory() / (1024 * 1024)) as u32
 }

@@ -54,8 +54,12 @@ export function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
       <div className="w-[400px] flex flex-col items-center gap-6">
         {/* logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-            <span className="text-3xl">⛏</span>
+          <div className="flex items-center justify-center">
+            <img
+              src="/logo.svg"
+              alt="Logo"
+              className="w-16 h-16 drop-shadow-sm"
+            />
           </div>
           <h1 className="text-xl font-bold tracking-tight">JD Launcher</h1>
           <p className="text-sm text-muted-foreground text-center">

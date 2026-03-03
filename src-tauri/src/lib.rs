@@ -6,6 +6,7 @@ mod modpacks;
 mod mojang_api;
 mod profiles;
 
+use crate::helper::get_system_memory_mb;
 use crate::java_manager::{
     detect_system_javas, download_java, get_local_java_version, get_required_java_version,
 };
@@ -23,6 +24,7 @@ use crate::profiles::{
     import_profile, list_mods, list_profiles, list_shaders, reset_settings, save_profile,
     set_last_profile_id, update_settings,
 };
+#[cfg(debug_assertions)]
 use specta_typescript::Typescript;
 use tauri_specta::{collect_commands, Builder};
 
@@ -80,12 +82,16 @@ pub fn run() {
         get_modpack_versions,
         install_modpack,
         check_modpack_update,
-        update_modpack
+        update_modpack,
+        get_system_memory_mb
     ]);
 
     #[cfg(debug_assertions)]
     builder
-        .export(Typescript::default(), "../src/bindings.ts")
+        .export(
+            Typescript::default().header("// @ts-nocheck\n"),
+            "../src/bindings.ts",
+        )
         .expect("Failed to export typescript bindings");
 
     tauri::Builder::default()

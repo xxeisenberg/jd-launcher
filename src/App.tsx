@@ -312,10 +312,14 @@ function App() {
                 tooltip="JD Launcher"
                 className="cursor-default"
               >
-                <div className="flex items-center justify-center w-8 h-8 rounded-md bg-primary/15">
-                  <span className="text-lg">⛏</span>
+                <div className="flex aspect-square size-8 items-center justify-center">
+                  <img
+                    src="/logo.svg"
+                    alt="Logo"
+                    className="w-8 h-8 drop-shadow-sm"
+                  />
                 </div>
-                <div className="grid flex-1 text-left text-sm leading-tight">
+                <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
                   <span className="truncate font-bold">JD Launcher</span>
                   <span className="truncate text-xs text-muted-foreground">
                     Minecraft

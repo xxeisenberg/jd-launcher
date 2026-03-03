@@ -40,6 +40,7 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
   const [systemJavas, setSystemJavas] = useState<JavaInstall[]>([]);
   const [downloadingJava, setDownloadingJava] = useState(false);
   const [downloadPhase, setDownloadPhase] = useState("");
+  const [systemRamMb, setSystemRamMb] = useState(16384);
   const [form, setForm] = useState<Profile>(() => {
     const id = initial?.id ?? generateId();
     return {
@@ -58,6 +59,11 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
 
   useEffect(() => {
     commands.getSettings().then(setSettings);
+    commands.getSystemMemoryMb().then((mb) => {
+      // Round down to nearest 512MB
+      const rounded = Math.floor(mb / 512) * 512;
+      setSystemRamMb(Math.max(1024, rounded));
+    });
   }, []);
 
   const filterAndSortVersions = (
@@ -399,7 +405,7 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
             <input
               type="range"
               min={512}
-              max={16384}
+              max={systemRamMb}
               step={512}
               value={getMemoryMb()}
               onChange={(e) => updateMemory(Number(e.target.value))}
