@@ -5,6 +5,7 @@ import {
   ArrowLeftIcon,
   FileBoxIcon,
   ImageIcon,
+  PaletteIcon,
   SettingsIcon,
   PlayIcon,
 } from "lucide-react";
@@ -27,15 +28,17 @@ export function InstanceViewPage({
 }: InstanceViewPageProps) {
   const [mods, setMods] = useState<string[]>([]);
   const [shaders, setShaders] = useState<string[]>([]);
+  const [resourcePacks, setResourcePacks] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadDetails() {
       setLoading(true);
       try {
-        const [modsRes, shadersRes] = await Promise.all([
+        const [modsRes, shadersRes, rpRes] = await Promise.all([
           commands.listMods(profile.id),
           commands.listShaders(profile.id),
+          commands.listResourcePacks(profile.id),
         ]);
 
         if (modsRes.status === "ok") {
@@ -43,6 +46,9 @@ export function InstanceViewPage({
         }
         if (shadersRes.status === "ok") {
           setShaders(shadersRes.data);
+        }
+        if (rpRes.status === "ok") {
+          setResourcePacks(rpRes.data);
         }
       } catch (e) {
         console.error("Failed to load instance details", e);
@@ -136,6 +142,15 @@ export function InstanceViewPage({
                 {shaders.length}
               </Badge>
             </TabsTrigger>
+            <TabsTrigger value="resourcepacks" className="gap-2">
+              <PaletteIcon className="w-4 h-4" /> Resource Packs
+              <Badge
+                variant="secondary"
+                className="ml-1 opacity-60 px-1 py-0 text-[10px] h-4 min-w-[1rem] flex items-center justify-center"
+              >
+                {resourcePacks.length}
+              </Badge>
+            </TabsTrigger>
             <TabsTrigger value="settings" className="gap-2">
               <SettingsIcon className="w-4 h-4" /> Overview
             </TabsTrigger>
@@ -201,6 +216,39 @@ export function InstanceViewPage({
                       >
                         <ImageIcon className="w-4 h-4 text-muted-foreground" />
                         <span className="text-sm font-medium">{shader}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            <TabsContent
+              value="resourcepacks"
+              className="absolute inset-0 m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-4 sm:p-6 flex flex-col gap-1">
+                  {loading ? (
+                    <div className="text-sm text-muted-foreground flex items-center justify-center h-32">
+                      Loading resource packs...
+                    </div>
+                  ) : resourcePacks.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                      <PaletteIcon className="w-8 h-8 opacity-20 mb-2" />
+                      <p className="text-sm">No resource packs installed</p>
+                      <p className="text-xs mt-1">
+                        Place .zip files in this instance's resourcepacks folder
+                      </p>
+                    </div>
+                  ) : (
+                    resourcePacks.map((pack, i) => (
+                      <div
+                        key={i}
+                        className="flex px-4 py-2 border rounded-lg items-center gap-3 bg-background group"
+                      >
+                        <PaletteIcon className="w-4 h-4 text-muted-foreground" />
+                        <span className="text-sm font-medium">{pack}</span>
                       </div>
                     ))
                   )}

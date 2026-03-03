@@ -324,7 +324,7 @@ pub fn list_shaders(profile_id: String) -> Result<Vec<String>, String> {
         if path.is_file() || path.is_dir() {
             // Shaders can be both zip files or directories
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if !name.starts_with('.') {
+                if !name.starts_with('.') && !name.ends_with(".txt") {
                     shaders.push(name.to_string());
                 }
             }
@@ -334,6 +334,38 @@ pub fn list_shaders(profile_id: String) -> Result<Vec<String>, String> {
     // Sort shaders alphabetically
     shaders.sort();
     Ok(shaders)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn list_resource_packs(profile_id: String) -> Result<Vec<String>, String> {
+    let config = load_profiles();
+    let profile = config
+        .profiles
+        .iter()
+        .find(|p| p.id == profile_id)
+        .ok_or_else(|| format!("Profile '{}' not found", profile_id))?;
+
+    let rp_dir = PathBuf::from(&profile.game_dir).join("resourcepacks");
+    if !rp_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut packs = Vec::new();
+    for entry in std::fs::read_dir(rp_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_file() || path.is_dir() {
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if !name.starts_with('.') && !name.ends_with(".txt") {
+                    packs.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    packs.sort();
+    Ok(packs)
 }
 
 // Import Export

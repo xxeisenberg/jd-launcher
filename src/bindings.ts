@@ -114,6 +114,14 @@ async listShaders(profileId: string) : Promise<Result<string[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async listResourcePacks(profileId: string) : Promise<Result<string[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_resource_packs", { profileId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getModloaderVersions(modloader: string, mcVersion: string) : Promise<Result<ModloaderVersion[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_modloader_versions", { modloader, mcVersion }) };
