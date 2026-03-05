@@ -16,7 +16,8 @@ use crate::microsoft_auth::{
 };
 use crate::modloaders::get_modloader_versions;
 use crate::modpacks::{
-    check_modpack_update, get_modpack_versions, install_modpack, search_modpacks, update_modpack,
+    check_modpack_update, get_modpack_versions, install_modpack, install_modrinth_content,
+    search_modpacks, search_modrinth, update_modpack,
 };
 use crate::mojang_api::{download_version_and_run, get_available_versions, save_log_file};
 use crate::profiles::{
@@ -84,7 +85,9 @@ pub fn run() {
         install_modpack,
         check_modpack_update,
         update_modpack,
-        get_system_memory_mb
+        get_system_memory_mb,
+        search_modrinth,
+        install_modrinth_content
     ]);
 
     #[cfg(debug_assertions)]

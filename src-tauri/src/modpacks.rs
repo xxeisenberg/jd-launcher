@@ -509,6 +509,123 @@ pub async fn update_modpack(app: AppHandle, profile_id: String) -> Result<Profil
     .await
 }
 
+// Search mods/shaders/resource packs
+#[tauri::command]
+#[specta::specta]
+pub async fn search_modrinth(
+    query: String,
+    project_type: String,
+    game_version: String,
+    modloader: String,
+    offset: u32,
+) -> Result<Vec<ModpackSearchResult>, String> {
+    let client = modrinth_client();
+    let encoded_query = urlencod(&query);
+
+    // Build facets array
+    let mut facets = vec![format!("[\"project_type:{}\"]", project_type)];
+    if !game_version.is_empty() {
+        facets.push(format!("[\"versions:{}\"]", game_version));
+    }
+    if modloader != "none" && !modloader.is_empty() && project_type == "mod" {
+        facets.push(format!("[\"categories:{}\"]", modloader));
+    }
+    let facets_str = format!("[{}]", facets.join(","));
+    let encoded_facets = urlencod(&facets_str);
+
+    let url = format!(
+        "{}/search?query={}&facets={}&limit=20&offset={}&index=relevance",
+        MODRINTH_API, encoded_query, encoded_facets, offset
+    );
+
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| format!("Search failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Modrinth API error: {}", resp.status()));
+    }
+
+    let data: ModrinthSearchResponse = resp
+        .json::<ModrinthSearchResponse>()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let results = data
+        .hits
+        .into_iter()
+        .map(|hit| {
+            let latest_mc = hit.versions.last().cloned().unwrap_or_default();
+            ModpackSearchResult {
+                project_id: hit.project_id,
+                slug: hit.slug,
+                title: hit.title,
+                description: hit.description,
+                icon_url: hit.icon_url.unwrap_or_default(),
+                downloads: hit.downloads as u32,
+                author: hit.author,
+                categories: hit.categories,
+                latest_mc_version: latest_mc,
+            }
+        })
+        .collect();
+
+    Ok(results)
+}
+
+// Install a mod/shader/resource pack
+#[tauri::command]
+#[specta::specta]
+pub async fn install_modrinth_content(
+    project_id: String,
+    version_id: String,
+    game_dir: String,
+    subfolder: String,
+) -> Result<(), String> {
+    let client = modrinth_client();
+
+    let ver_resp = client
+        .get(format!("{}/version/{}", MODRINTH_API, version_id))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to get version: {}", e))?;
+
+    let version: ModrinthVersion = ver_resp
+        .json::<ModrinthVersion>()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let primary_file = version
+        .files
+        .iter()
+        .find(|f| f.primary)
+        .or(version.files.first())
+        .ok_or("No files in version")?;
+
+    let target_dir = std::path::PathBuf::from(&game_dir).join(&subfolder);
+    std::fs::create_dir_all(&target_dir).map_err(|e| format!("Failed to create dir: {}", e))?;
+
+    let target_path = target_dir.join(&primary_file.filename);
+
+    let bytes = client
+        .get(&primary_file.url)
+        .send()
+        .await
+        .map_err(|e| format!("Download failed: {}", e))?
+        .bytes()
+        .await
+        .map_err(|e| format!("Read failed: {}", e))?;
+
+    std::fs::write(&target_path, &bytes).map_err(|e| format!("Write failed: {}", e))?;
+
+    // suppress unused var warning
+    let _ = project_id;
+
+    Ok(())
+}
+
 // Helper: extract overrides from mrpack
 fn extract_overrides(mrpack_bytes: &[u8], game_dir: &str, prefix: &str) -> Result<(), String> {
     let cursor = std::io::Cursor::new(mrpack_bytes);

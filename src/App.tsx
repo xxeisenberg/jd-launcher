@@ -56,6 +56,7 @@ import { ConsoleDrawer } from "./components/ConsoleDrawer";
 import { ModpackBrowser } from "./components/ModpackBrowser";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { InstanceViewPage } from "./components/InstanceViewPage";
+import { ModrinthBrowsePage } from "./components/ModrinthBrowsePage";
 
 import "./App.css";
 import { applyTheme } from "./lib/themes";
@@ -74,7 +75,12 @@ type ModalState =
   | { kind: "new" }
   | { kind: "edit"; profile: Profile };
 
-type View = "instances" | "modpacks" | "settings" | "instance-view";
+type View =
+  | "instances"
+  | "modpacks"
+  | "settings"
+  | "instance-view"
+  | "instance-modrinth";
 type InstanceLayout = "list" | "grid";
 
 function App() {
@@ -95,6 +101,9 @@ function App() {
   const [activeInstance, setActiveInstance] = useState<Profile | null>(null);
   const [instanceLayout, setInstanceLayout] = useState<InstanceLayout>("list");
   const [showConsole, setShowConsole] = useState(false);
+  const [modrinthProjectType, setModrinthProjectType] = useState<
+    "mod" | "shader" | "resourcepack"
+  >("mod");
 
   // auth
   const [authMode, setAuthMode] = useState(false);
@@ -295,6 +304,7 @@ function App() {
     modpacks: "Modrinth",
     settings: "Settings",
     "instance-view": "Instance Details",
+    "instance-modrinth": "Browse Modrinth",
   };
 
   if (!onboarded) {
@@ -488,7 +498,9 @@ function App() {
         >
           <span className="text-xs text-muted-foreground">Home</span>
           <ChevronRightIcon className="w-3 h-3 text-muted-foreground/50" />
-          {currentView === "instance-view" && activeInstance ? (
+          {(currentView === "instance-view" ||
+            currentView === "instance-modrinth") &&
+          activeInstance ? (
             <>
               <button
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -497,9 +509,29 @@ function App() {
                 Instances
               </button>
               <ChevronRightIcon className="w-3 h-3 text-muted-foreground/50" />
-              <span className="text-xs font-medium truncate max-w-[200px]">
+              <button
+                className={
+                  currentView === "instance-modrinth"
+                    ? "text-xs text-muted-foreground hover:text-foreground transition-colors truncate max-w-[150px]"
+                    : "text-xs font-medium truncate max-w-[200px]"
+                }
+                onClick={() => setCurrentView("instance-view")}
+              >
                 {activeInstance.name}
-              </span>
+              </button>
+              {currentView === "instance-modrinth" && (
+                <>
+                  <ChevronRightIcon className="w-3 h-3 text-muted-foreground/50" />
+                  <span className="text-xs font-medium">
+                    Add{" "}
+                    {modrinthProjectType === "mod"
+                      ? "Mod"
+                      : modrinthProjectType === "shader"
+                        ? "Shader"
+                        : "Resource Pack"}
+                  </span>
+                </>
+              )}
             </>
           ) : (
             <span className="text-xs font-medium">
@@ -639,6 +671,22 @@ function App() {
               onBack={() => setCurrentView("instances")}
               onLaunch={handleLaunch}
               onEdit={(p) => setModal({ kind: "edit", profile: p })}
+              onBrowseModrinth={(type) => {
+                setModrinthProjectType(type);
+                setCurrentView("instance-modrinth");
+              }}
+            />
+          )}
+
+          {/* instance modrinth browse view */}
+          {currentView === "instance-modrinth" && activeInstance && (
+            <ModrinthBrowsePage
+              profileId={activeInstance.id}
+              gameDir={activeInstance.game_dir}
+              gameVersion={activeInstance.version}
+              modloader={activeInstance.modloader}
+              projectType={modrinthProjectType}
+              onBack={() => setCurrentView("instance-view")}
             />
           )}
 

@@ -8,6 +8,7 @@ import {
   PaletteIcon,
   SettingsIcon,
   PlayIcon,
+  PlusIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -18,6 +19,7 @@ interface InstanceViewPageProps {
   onBack: () => void;
   onLaunch: (profile: Profile) => void;
   onEdit: (profile: Profile) => void;
+  onBrowseModrinth?: (type: "mod" | "shader" | "resourcepack") => void;
 }
 
 export function InstanceViewPage({
@@ -25,11 +27,13 @@ export function InstanceViewPage({
   onBack,
   onLaunch,
   onEdit,
+  onBrowseModrinth,
 }: InstanceViewPageProps) {
   const [mods, setMods] = useState<string[]>([]);
   const [shaders, setShaders] = useState<string[]>([]);
   const [resourcePacks, setResourcePacks] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("mods");
 
   useEffect(() => {
     async function loadDetails() {
@@ -66,7 +70,7 @@ export function InstanceViewPage({
       : profile.modloader.charAt(0).toUpperCase() + profile.modloader.slice(1);
 
   return (
-    <div className="flex flex-col h-full bg-background relative overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 bg-background relative overflow-hidden">
       {/* Header Banner */}
       <div className="h-32 bg-primary/10 relative shrink-0">
         <div className="absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-background to-transparent" />
@@ -122,40 +126,65 @@ export function InstanceViewPage({
 
       {/* Tabs Content */}
       <div className="flex-1 overflow-hidden px-8 py-6">
-        <Tabs defaultValue="mods" className="h-full flex flex-col">
-          <TabsList className="w-fit">
-            <TabsTrigger value="mods" className="gap-2">
-              <FileBoxIcon className="w-4 h-4" /> Mods
-              <Badge
-                variant="secondary"
-                className="ml-1 opacity-60 px-1 py-0 text-[10px] h-4 min-w-[1rem] flex items-center justify-center"
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="h-full flex flex-col"
+        >
+          <div className="flex items-center justify-between">
+            <TabsList className="w-fit">
+              <TabsTrigger value="mods" className="gap-2">
+                <FileBoxIcon className="w-4 h-4" /> Mods
+                <Badge
+                  variant="secondary"
+                  className="ml-1 opacity-60 px-1 py-0 text-[10px] h-4 min-w-[1rem] flex items-center justify-center"
+                >
+                  {mods.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="shaders" className="gap-2">
+                <ImageIcon className="w-4 h-4" /> Shaders
+                <Badge
+                  variant="secondary"
+                  className="ml-1 opacity-60 px-1 py-0 text-[10px] h-4 min-w-[1rem] flex items-center justify-center"
+                >
+                  {shaders.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="resourcepacks" className="gap-2">
+                <PaletteIcon className="w-4 h-4" /> Resource Packs
+                <Badge
+                  variant="secondary"
+                  className="ml-1 opacity-60 px-1 py-0 text-[10px] h-4 min-w-[1rem] flex items-center justify-center"
+                >
+                  {resourcePacks.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="settings" className="gap-2">
+                <SettingsIcon className="w-4 h-4" /> Overview
+              </TabsTrigger>
+            </TabsList>
+            {activeTab !== "settings" && onBrowseModrinth && (
+              <Button
+                size="sm"
+                className="gap-2"
+                onClick={() =>
+                  onBrowseModrinth(
+                    activeTab === "resourcepacks"
+                      ? "resourcepack"
+                      : (activeTab.replace(/s$/, "") as any),
+                  )
+                }
               >
-                {mods.length}
-              </Badge>
-            </TabsTrigger>
-            <TabsTrigger value="shaders" className="gap-2">
-              <ImageIcon className="w-4 h-4" /> Shaders
-              <Badge
-                variant="secondary"
-                className="ml-1 opacity-60 px-1 py-0 text-[10px] h-4 min-w-[1rem] flex items-center justify-center"
-              >
-                {shaders.length}
-              </Badge>
-            </TabsTrigger>
-            <TabsTrigger value="resourcepacks" className="gap-2">
-              <PaletteIcon className="w-4 h-4" /> Resource Packs
-              <Badge
-                variant="secondary"
-                className="ml-1 opacity-60 px-1 py-0 text-[10px] h-4 min-w-[1rem] flex items-center justify-center"
-              >
-                {resourcePacks.length}
-              </Badge>
-            </TabsTrigger>
-            <TabsTrigger value="settings" className="gap-2">
-              <SettingsIcon className="w-4 h-4" /> Overview
-            </TabsTrigger>
-          </TabsList>
-
+                <PlusIcon className="w-4 h-4" /> Add{" "}
+                {activeTab === "mods"
+                  ? "Mod"
+                  : activeTab === "shaders"
+                    ? "Shader"
+                    : "Resource Pack"}
+              </Button>
+            )}
+          </div>
           <div className="flex-1 mt-6 overflow-hidden min-h-0 border rounded-xl bg-card relative">
             <TabsContent
               value="mods"

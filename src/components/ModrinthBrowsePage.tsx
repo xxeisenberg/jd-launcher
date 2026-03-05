@@ -8,54 +8,69 @@ import {
   DownloadIcon,
   SearchIcon,
   PackageIcon,
-  CheckCircleIcon,
+  CheckIcon,
   XIcon,
 } from "lucide-react";
 
-interface ModpackBrowserProps {
-  onInstalled: () => void;
+interface ModrinthBrowsePageProps {
+  profileId: string;
+  gameDir: string;
+  gameVersion: string;
+  modloader: string;
+  projectType: "mod" | "shader" | "resourcepack";
+  onBack: () => void;
 }
 
-export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
+const SUBFOLDER_MAP: Record<string, string> = {
+  mod: "mods",
+  shader: "shaderpacks",
+  resourcepack: "resourcepacks",
+};
+
+const LABEL_MAP: Record<string, string> = {
+  mod: "Mods",
+  shader: "Shaders",
+  resourcepack: "Resource Packs",
+};
+
+export function ModrinthBrowsePage({
+  gameDir,
+  gameVersion,
+  modloader,
+  projectType,
+}: ModrinthBrowsePageProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ModpackSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
-  const [selectedPack, setSelectedPack] = useState<ModpackSearchResult | null>(
+  const [selectedItem, setSelectedItem] = useState<ModpackSearchResult | null>(
     null,
   );
   const [versions, setVersions] = useState<ModpackVersion[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [installing, setInstalling] = useState(false);
+  const [installedVersions, setInstalledVersions] = useState<Set<string>>(
+    new Set(),
+  );
   const [error, setError] = useState<string | null>(null);
 
-  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
-
-  const loadInstalled = useCallback(async () => {
-    const profiles = await commands.listProfiles();
-    const ids = new Set<string>();
-    for (const p of profiles) {
-      if (p.modpack_info) ids.add(p.modpack_info.project_id);
-    }
-    setInstalledIds(ids);
-  }, []);
-
-  useEffect(() => {
-    loadInstalled();
-  }, [loadInstalled]);
+  const subfolder = SUBFOLDER_MAP[projectType];
+  const label = LABEL_MAP[projectType];
 
   const doSearch = useCallback(
     async (q: string, off: number, append: boolean) => {
-      if (!q.trim()) {
-        if (!append) setResults([]);
-        return;
-      }
       setLoading(true);
       setError(null);
       try {
-        const res = await commands.searchModpacks(q, off);
+        const res = await commands.searchModrinth(
+          q,
+          projectType,
+          gameVersion,
+          modloader,
+          off,
+        );
         if (res.status === "ok") {
           append
             ? setResults((p) => [...p, ...res.data])
@@ -70,7 +85,7 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
         setLoading(false);
       }
     },
-    [],
+    [projectType, gameVersion, modloader],
   );
 
   useEffect(() => {
@@ -102,14 +117,26 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
     [loading, hasMore, loadMore],
   );
 
-  const openVersionPicker = async (pack: ModpackSearchResult) => {
-    setSelectedPack(pack);
+  const openVersionPicker = async (item: ModpackSearchResult) => {
+    setSelectedItem(item);
     setLoadingVersions(true);
     setVersions([]);
     try {
-      const res = await commands.getModpackVersions(pack.project_id);
-      if (res.status === "ok") setVersions(res.data);
-      else setError(res.error);
+      const res = await commands.getModpackVersions(item.project_id);
+      if (res.status === "ok") {
+        // filter to compatible versions
+        const compatible = res.data.filter(
+          (v) =>
+            v.mc_versions.includes(gameVersion) &&
+            (modloader === "none" ||
+              v.loaders.some(
+                (l) => l.toLowerCase() === modloader.toLowerCase(),
+              )),
+        );
+        setVersions(compatible.length > 0 ? compatible : res.data);
+      } else {
+        setError(res.error);
+      }
     } catch (e: any) {
       setError(e.toString());
     } finally {
@@ -118,21 +145,20 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
   };
 
   const handleInstall = async (
-    pack: ModpackSearchResult,
+    item: ModpackSearchResult,
     ver: ModpackVersion,
   ) => {
     setInstalling(true);
     setError(null);
     try {
-      const res = await commands.installModpack(
-        pack.project_id,
+      const res = await commands.installModrinthContent(
+        item.project_id,
         ver.version_id,
-        pack.title,
+        gameDir,
+        subfolder,
       );
       if (res.status === "ok") {
-        setSelectedPack(null);
-        await loadInstalled();
-        onInstalled();
+        setInstalledVersions((prev) => new Set([...prev, ver.version_id]));
       } else {
         setError(res.error);
       }
@@ -158,7 +184,7 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search modpacks…"
+            placeholder={`Search ${label.toLowerCase()}…`}
             className="pl-9"
           />
         </div>
@@ -174,17 +200,11 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
         </div>
       )}
 
-      {/* empty states */}
-      {results.length === 0 && !loading && query.trim() === "" && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-          <PackageIcon className="w-10 h-10 opacity-30" />
-          <p className="text-sm">Search Modrinth to find modpacks</p>
-        </div>
-      )}
+      {/* empty state */}
       {results.length === 0 && !loading && query.trim() !== "" && (
         <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground">
           <SearchIcon className="w-10 h-10 opacity-30" />
-          <p className="text-sm">No results found</p>
+          <p className="text-sm">No {label.toLowerCase()} found</p>
         </div>
       )}
 
@@ -192,99 +212,79 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
       <div className="flex-1 overflow-y-auto px-6 pb-4">
         {/* results list */}
         <div className="flex flex-col gap-3">
-          {results.map((pack) => {
-            const isInstalled = installedIds.has(pack.project_id);
-            return (
-              <div
-                key={pack.project_id}
-                className={`group relative flex items-start gap-4 p-4 rounded-xl border bg-card/40 hover:bg-card/80 hover:shadow-lg transition-all duration-300 ${
-                  isInstalled
-                    ? "border-primary/30 shadow-[0_0_15px_-3px_rgba(var(--primary),0.1)]"
-                    : "border-border/60"
-                }`}
-              >
-                <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center shrink-0 overflow-hidden shadow-inner border border-white/5">
-                  {pack.icon_url ? (
-                    <img
-                      src={pack.icon_url}
-                      alt=""
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                  ) : (
-                    <PackageIcon className="w-8 h-8 text-muted-foreground/30" />
+          {results.map((item) => (
+            <div
+              key={item.project_id}
+              className="group relative flex items-start gap-4 p-4 rounded-xl border border-border/60 bg-card/40 hover:bg-card/80 hover:shadow-lg transition-all duration-300"
+            >
+              <div className="w-20 h-20 rounded-2xl bg-muted/50 flex items-center justify-center shrink-0 overflow-hidden shadow-inner border border-white/5">
+                {item.icon_url ? (
+                  <img
+                    src={item.icon_url}
+                    alt=""
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+                ) : (
+                  <PackageIcon className="w-8 h-8 text-muted-foreground/30" />
+                )}
+              </div>
+
+              <div className="flex-1 min-w-0 pt-0.5 space-y-2">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap mb-1">
+                      <h3 className="text-lg font-bold text-foreground tracking-tight line-clamp-1">
+                        {item.title}
+                      </h3>
+                      <span className="text-sm text-muted-foreground">by</span>
+                      <span className="text-sm font-medium text-foreground/80 line-clamp-1">
+                        {item.author}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed pr-8">
+                      {item.description}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-2.5 shrink-0">
+                    <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground mb-1">
+                      <span className="flex items-center gap-1.5 transition-colors group-hover:text-foreground/80">
+                        <DownloadIcon className="w-3.5 h-3.5" />{" "}
+                        {fmtDl(item.downloads)}
+                      </span>
+                    </div>
+                    <Button
+                      onClick={() => openVersionPicker(item)}
+                      size="sm"
+                      className="h-8 rounded-full px-5 font-semibold shadow-sm transition-all hover:scale-105 active:scale-95"
+                    >
+                      Install
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap pt-1">
+                  {item.categories?.slice(0, 5).map((c) => (
+                    <Badge
+                      key={c}
+                      variant="secondary"
+                      className="px-2 h-5.5 text-[11px] font-medium bg-secondary/40 hover:bg-secondary text-secondary-foreground border-transparent transition-colors"
+                    >
+                      {c}
+                    </Badge>
+                  ))}
+                  {item.latest_mc_version && (
+                    <Badge
+                      variant="outline"
+                      className="px-2 h-5.5 text-[11px] font-medium text-primary/70 border-primary/20"
+                    >
+                      {item.latest_mc_version}
+                    </Badge>
                   )}
                 </div>
-
-                <div className="flex-1 min-w-0 pt-0.5 space-y-2">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <div className="flex items-baseline gap-2 flex-wrap mb-1">
-                        <h3 className="text-lg font-bold text-foreground tracking-tight line-clamp-1">
-                          {pack.title}
-                        </h3>
-                        <span className="text-sm text-muted-foreground">
-                          by
-                        </span>
-                        <span className="text-sm font-medium text-foreground/80 line-clamp-1">
-                          {pack.author}
-                        </span>
-                      </div>
-                      <p className="text-sm text-muted-foreground line-clamp-2 leading-relaxed pr-8">
-                        {pack.description}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-2.5 shrink-0">
-                      <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground mb-1">
-                        <span className="flex items-center gap-1.5 transition-colors group-hover:text-foreground/80">
-                          <DownloadIcon className="w-3.5 h-3.5" />{" "}
-                          {fmtDl(pack.downloads)}
-                        </span>
-                      </div>
-                      {isInstalled ? (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="h-8 rounded-full px-4 text-green-500 bg-green-500/10 hover:bg-green-500/20 font-semibold cursor-default"
-                        >
-                          <CheckCircleIcon className="w-4 h-4 mr-1.5" />{" "}
-                          Installed
-                        </Button>
-                      ) : (
-                        <Button
-                          onClick={() => openVersionPicker(pack)}
-                          size="sm"
-                          className="h-8 rounded-full px-5 font-semibold shadow-sm transition-all hover:scale-105 active:scale-95"
-                        >
-                          Install
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap pt-1">
-                    {pack.categories?.slice(0, 5).map((c) => (
-                      <Badge
-                        key={c}
-                        variant="secondary"
-                        className="px-2 h-5.5 text-[11px] font-medium bg-secondary/40 hover:bg-secondary text-secondary-foreground border-transparent transition-colors"
-                      >
-                        {c}
-                      </Badge>
-                    ))}
-                    {pack.latest_mc_version && (
-                      <Badge
-                        variant="outline"
-                        className="px-2 h-5.5 text-[11px] font-medium text-primary/70 border-primary/20"
-                      >
-                        {pack.latest_mc_version}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
 
         {hasMore && results.length > 0 && (
@@ -295,28 +295,28 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
       </div>
 
       {/* version picker modal */}
-      {selectedPack && (
+      {selectedItem && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
-          onClick={() => !installing && setSelectedPack(null)}
+          onClick={() => !installing && setSelectedItem(null)}
         >
           <div
             className="bg-card border border-border rounded-xl w-[520px] max-w-[calc(100vw-40px)] max-h-[calc(100vh-80px)] flex flex-col shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
-              {selectedPack.icon_url && (
+              {selectedItem.icon_url && (
                 <img
-                  src={selectedPack.icon_url}
+                  src={selectedItem.icon_url}
                   alt=""
                   className="w-8 h-8 rounded"
                 />
               )}
               <h2 className="text-base font-semibold flex-1 truncate">
-                {selectedPack.title}
+                {selectedItem.title}
               </h2>
               <button
-                onClick={() => !installing && setSelectedPack(null)}
+                onClick={() => !installing && setSelectedItem(null)}
                 className="text-muted-foreground hover:text-foreground"
               >
                 <XIcon className="w-4 h-4" />
@@ -324,7 +324,7 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
             </div>
             <div className="flex-1 overflow-y-auto p-5 space-y-2">
               <p className="text-xs text-muted-foreground mb-3">
-                {selectedPack.description}
+                {selectedItem.description}
               </p>
               {loadingVersions ? (
                 <div className="flex justify-center py-8">
@@ -361,20 +361,29 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
                           ))}
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      className="h-7"
-                      onClick={() => handleInstall(selectedPack, ver)}
-                      disabled={installing}
-                    >
-                      {installing ? "…" : "Install"}
-                    </Button>
+                    {installedVersions.has(ver.version_id) ? (
+                      <Badge
+                        variant="secondary"
+                        className="gap-1 text-xs text-green-500"
+                      >
+                        <CheckIcon className="w-3 h-3" /> Installed
+                      </Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="h-7"
+                        onClick={() => handleInstall(selectedItem, ver)}
+                        disabled={installing}
+                      >
+                        {installing ? "…" : "Install"}
+                      </Button>
+                    )}
                   </div>
                 ))
               )}
               {versions.length === 0 && !loadingVersions && (
                 <p className="text-xs text-muted-foreground text-center py-4">
-                  No versions available.
+                  No compatible versions found.
                 </p>
               )}
             </div>

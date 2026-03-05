@@ -246,6 +246,22 @@ async updateModpack(profileId: string) : Promise<Result<Profile, string>> {
 },
 async getSystemMemoryMb() : Promise<number> {
     return await TAURI_INVOKE("get_system_memory_mb");
+},
+async searchModrinth(query: string, projectType: string, gameVersion: string, modloader: string, offset: number) : Promise<Result<ModpackSearchResult[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("search_modrinth", { query, projectType, gameVersion, modloader, offset }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async installModrinthContent(projectId: string, versionId: string, gameDir: string, subfolder: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("install_modrinth_content", { projectId, versionId, gameDir, subfolder }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
