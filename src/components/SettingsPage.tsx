@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { commands } from "../bindings";
 import type { LauncherSettings } from "../bindings";
 import { Button } from "@/components/ui/button";
@@ -40,14 +41,20 @@ const TABS: { key: TabKey; label: string }[] = [
 ];
 
 export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
-  const [settings, setSettings] = useState<LauncherSettings | null>(null);
+  const qc = useQueryClient();
+  const { data: loadedSettings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: () => commands.getSettings(),
+  });
+
+  const [localSettings, setLocalSettings] = useState<LauncherSettings | null>(
+    null,
+  );
   const [activeTab, setActiveTab] = useState<TabKey>("general");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
 
-  useEffect(() => {
-    commands.getSettings().then((s) => setSettings(s));
-  }, []);
+  const settings = dirty ? localSettings : (loadedSettings ?? null);
 
   const handleSave = async () => {
     if (!settings) return;
@@ -56,6 +63,8 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
     setSaving(false);
     if (result.status === "ok") {
       setDirty(false);
+      setLocalSettings(null);
+      qc.invalidateQueries({ queryKey: ["settings"] });
       onSettingsSaved(settings);
     } else {
       alert("Failed to save: " + result.error);
@@ -67,9 +76,10 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
     setSaving(true);
     const result = await commands.resetSettings();
     if (result.status === "ok") {
-      const s = await commands.getSettings();
-      setSettings(s);
       setDirty(false);
+      setLocalSettings(null);
+      await qc.invalidateQueries({ queryKey: ["settings"] });
+      const s = await commands.getSettings();
       onSettingsSaved(s);
     }
     setSaving(false);
@@ -78,7 +88,7 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
   const set = (key: keyof LauncherSettings, value: any) => {
     if (!settings) return;
     const newSettings = { ...settings, [key]: value };
-    setSettings(newSettings);
+    setLocalSettings(newSettings);
     setDirty(true);
   };
 

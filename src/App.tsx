@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { commands } from "./bindings";
 import type { Profile, LauncherSettings } from "./bindings";
 import { listen } from "@tauri-apps/api/event";
@@ -84,11 +85,11 @@ type View =
 type InstanceLayout = "list" | "grid";
 
 function App() {
+  const qc = useQueryClient();
+
   const [onboarded, setOnboarded] = useState(
     () => localStorage.getItem(ONBOARDING_KEY) === "true",
   );
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [lastProfileId, setLastProfileId] = useState<string | null>(null);
   const [username, setUsername] = useState(
     () => localStorage.getItem(OFFLINE_USER_KEY) || "",
   );
@@ -104,38 +105,41 @@ function App() {
   const [modrinthProjectType, setModrinthProjectType] = useState<
     "mod" | "shader" | "resourcepack"
   >("mod");
-
-  // auth
-  const [authMode, setAuthMode] = useState(false);
-  const [activeAccount, setActiveAccount] = useState<any | null>(null);
   const [deviceCodeInfo, setDeviceCodeInfo] = useState<any | null>(null);
 
-  // settings
-  const [settings, setSettings] = useState<LauncherSettings | null>(null);
+  // queries
+  const { data: profiles = [] } = useQuery({
+    queryKey: ["profiles"],
+    queryFn: () => commands.listProfiles(),
+  });
+
+  const { data: lastProfileId = null } = useQuery({
+    queryKey: ["lastProfileId"],
+    queryFn: async () => (await commands.getLastProfileId()) ?? null,
+  });
+
+  const { data: settings = null } = useQuery<LauncherSettings | null>({
+    queryKey: ["settings"],
+    queryFn: () => commands.getSettings(),
+  });
+
+  const { data: authMode = false } = useQuery({
+    queryKey: ["authMode"],
+    queryFn: () => commands.getAuthMode(),
+  });
+
+  const { data: activeAccount = null } = useQuery({
+    queryKey: ["activeAccount"],
+    queryFn: async () => (await commands.getActiveAccount()) ?? null,
+    enabled: authMode,
+  });
 
   const isDownloading = progress !== null;
 
-  const loadProfiles = useCallback(async () => {
-    const list = await commands.listProfiles();
-    setProfiles(list);
-    const lastId = await commands.getLastProfileId();
-    setLastProfileId(lastId ?? null);
-    const s = await commands.getSettings();
-    setSettings(s);
-  }, []);
-
-  const loadAuth = useCallback(async () => {
-    try {
-      const mode = await commands.getAuthMode();
-      setAuthMode(mode);
-      if (mode) {
-        const account = await commands.getActiveAccount();
-        setActiveAccount(account ?? null);
-      }
-    } catch (e) {
-      console.error("Auth init failed:", e);
-    }
-  }, []);
+  const invalidateProfiles = useCallback(
+    () => qc.invalidateQueries({ queryKey: ["profiles"] }),
+    [qc],
+  );
 
   const handleOnboardingComplete = useCallback(
     async (mode: "online" | "offline", offlineUser?: string) => {
@@ -145,15 +149,11 @@ function App() {
         setUsername(offlineUser);
       }
       setOnboarded(true);
-      await loadAuth();
+      qc.invalidateQueries({ queryKey: ["authMode"] });
+      qc.invalidateQueries({ queryKey: ["activeAccount"] });
     },
-    [loadAuth],
+    [qc],
   );
-
-  useEffect(() => {
-    loadProfiles();
-    loadAuth();
-  }, [loadProfiles, loadAuth]);
 
   useEffect(() => {
     const unlisten = listen<DownloadProgress>("download-progress", (event) => {
@@ -223,11 +223,13 @@ function App() {
         setDeviceCodeInfo(info.data);
       else setDeviceCodeInfo(info);
       const account = await commands.pollMsLogin();
-      if (account && "data" in account && account.status === "ok")
-        setActiveAccount(account.data);
-      else if (account && account.status === "error")
+      if (account && "data" in account && account.status === "ok") {
+        qc.invalidateQueries({ queryKey: ["activeAccount"] });
+      } else if (account && account.status === "error") {
         setError(account.error as string);
-      else setActiveAccount(account);
+      } else {
+        qc.invalidateQueries({ queryKey: ["activeAccount"] });
+      }
     } catch (e: any) {
       setError(e.toString());
     } finally {
@@ -239,7 +241,7 @@ function App() {
     if (!activeAccount) return;
     try {
       await commands.logoutAccount(activeAccount.uuid);
-      setActiveAccount(null);
+      qc.invalidateQueries({ queryKey: ["activeAccount"] });
     } catch (e) {
       console.error("Logout failed", e);
     }
@@ -248,18 +250,18 @@ function App() {
   async function handleSaveProfile(profile: Profile) {
     await commands.saveProfile(profile);
     setModal({ kind: "closed" });
-    loadProfiles();
+    invalidateProfiles();
   }
 
   async function handleDelete(profile: Profile) {
     await commands.deleteProfile(profile.id);
     setDeleteConfirm(null);
-    loadProfiles();
+    invalidateProfiles();
   }
 
   async function handleDuplicate(profile: Profile) {
     const result = await commands.duplicateProfile(profile.id);
-    if (result.status === "ok") loadProfiles();
+    if (result.status === "ok") invalidateProfiles();
   }
 
   async function handleExport(profile: Profile) {
@@ -280,7 +282,7 @@ function App() {
     if (!selected) return;
     const zipPath = typeof selected === "string" ? selected : selected[0];
     const result = await commands.importProfile(zipPath);
-    if (result.status === "ok") loadProfiles();
+    if (result.status === "ok") invalidateProfiles();
     else setError(`Import failed: ${result.error}`);
   }
 
@@ -656,12 +658,16 @@ function App() {
 
           {/* modpacks view */}
           {currentView === "modpacks" && (
-            <ModpackBrowser onInstalled={loadProfiles} />
+            <ModpackBrowser onInstalled={invalidateProfiles} />
           )}
 
           {/* settings view */}
           {currentView === "settings" && (
-            <SettingsPage onSettingsSaved={(s) => setSettings(s)} />
+            <SettingsPage
+              onSettingsSaved={() =>
+                qc.invalidateQueries({ queryKey: ["settings"] })
+              }
+            />
           )}
 
           {/* instance view */}

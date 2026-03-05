@@ -1,4 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { commands } from "../bindings";
 import type { ModpackSearchResult, ModpackVersion } from "../bindings";
 import { Button } from "@/components/ui/button";
@@ -16,12 +21,18 @@ interface ModpackBrowserProps {
   onInstalled: () => void;
 }
 
+function useDebouncedValue(value: string, ms = 400) {
+  const [debounced, setDebounced] = useState(value);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  if (timerRef.current) clearTimeout(timerRef.current);
+  timerRef.current = setTimeout(() => setDebounced(value), ms);
+  return debounced;
+}
+
 export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
+  const qc = useQueryClient();
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<ModpackSearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const debouncedQuery = useDebouncedValue(query);
 
   const [selectedPack, setSelectedPack] = useState<ModpackSearchResult | null>(
     null,
@@ -31,71 +42,48 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
   const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [installedIds, setInstalledIds] = useState<Set<string>>(new Set());
-
-  const loadInstalled = useCallback(async () => {
-    const profiles = await commands.listProfiles();
-    const ids = new Set<string>();
-    for (const p of profiles) {
-      if (p.modpack_info) ids.add(p.modpack_info.project_id);
-    }
-    setInstalledIds(ids);
-  }, []);
-
-  useEffect(() => {
-    loadInstalled();
-  }, [loadInstalled]);
-
-  const doSearch = useCallback(
-    async (q: string, off: number, append: boolean) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await commands.searchModpacks(q, off);
-        if (res.status === "ok") {
-          append
-            ? setResults((p) => [...p, ...res.data])
-            : setResults(res.data);
-          setHasMore(res.data.length >= 20);
-        } else {
-          setError(res.error);
-        }
-      } catch (e: any) {
-        setError(e.toString());
-      } finally {
-        setLoading(false);
+  const { data: installedIds = new Set<string>() } = useQuery({
+    queryKey: ["installedModpacks"],
+    queryFn: async () => {
+      const profiles = await commands.listProfiles();
+      const ids = new Set<string>();
+      for (const p of profiles) {
+        if (p.modpack_info) ids.add(p.modpack_info.project_id);
       }
+      return ids;
     },
-    [],
-  );
+  });
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setOffset(0);
-      doSearch(query, 0, false);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [query, doSearch]);
+  const { data, fetchNextPage, hasNextPage, isFetching, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: ["modpackSearch", debouncedQuery],
+      queryFn: async ({ pageParam = 0 }) => {
+        const res = await commands.searchModpacks(debouncedQuery, pageParam);
+        if (res.status === "ok") return res.data;
+        throw new Error(res.error);
+      },
+      initialPageParam: 0,
+      getNextPageParam: (lastPage, allPages) =>
+        lastPage.length >= 20 ? allPages.length * 20 : undefined,
+    });
 
-  const loadMore = useCallback(() => {
-    const next = offset + 20;
-    setOffset(next);
-    doSearch(query, next, true);
-  }, [offset, query, doSearch]);
+  const results = data?.pages.flat() ?? [];
+  const loading = isFetching;
 
+  // infinite scroll observer
   const observer = useRef<IntersectionObserver | null>(null);
   const lastElementRef = useCallback(
     (node: HTMLElement | null) => {
-      if (loading) return;
+      if (isFetchingNextPage) return;
       if (observer.current) observer.current.disconnect();
       observer.current = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && hasMore) {
-          loadMore();
+        if (entries[0].isIntersecting && hasNextPage) {
+          fetchNextPage();
         }
       });
       if (node) observer.current.observe(node);
     },
-    [loading, hasMore, loadMore],
+    [isFetchingNextPage, hasNextPage, fetchNextPage],
   );
 
   const openVersionPicker = async (pack: ModpackSearchResult) => {
@@ -127,7 +115,7 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
       );
       if (res.status === "ok") {
         setSelectedPack(null);
-        await loadInstalled();
+        qc.invalidateQueries({ queryKey: ["installedModpacks"] });
         onInstalled();
       } else {
         setError(res.error);
@@ -286,9 +274,9 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
           })}
         </div>
 
-        {hasMore && results.length > 0 && (
+        {hasNextPage && results.length > 0 && (
           <div ref={lastElementRef} className="flex justify-center py-3 h-10">
-            {loading && <div className="spinner" />}
+            {isFetchingNextPage && <div className="spinner" />}
           </div>
         )}
       </div>

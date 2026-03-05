@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { commands } from "../bindings";
 import type { ModpackSearchResult, ModpackVersion } from "../bindings";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,14 @@ const LABEL_MAP: Record<string, string> = {
   resourcepack: "Resource Packs",
 };
 
+function useDebouncedValue(value: string, ms = 400) {
+  const [debounced, setDebounced] = useState(value);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  if (timerRef.current) clearTimeout(timerRef.current);
+  timerRef.current = setTimeout(() => setDebounced(value), ms);
+  return debounced;
+}
+
 export function ModrinthBrowsePage({
   gameDir,
   gameVersion,
@@ -40,10 +49,7 @@ export function ModrinthBrowsePage({
   projectType,
 }: ModrinthBrowsePageProps) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<ModpackSearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const debouncedQuery = useDebouncedValue(query);
 
   const [selectedItem, setSelectedItem] = useState<ModpackSearchResult | null>(
     null,
@@ -59,62 +65,48 @@ export function ModrinthBrowsePage({
   const subfolder = SUBFOLDER_MAP[projectType];
   const label = LABEL_MAP[projectType];
 
-  const doSearch = useCallback(
-    async (q: string, off: number, append: boolean) => {
-      setLoading(true);
-      setError(null);
-      try {
+  const { data, fetchNextPage, hasNextPage, isFetching, isFetchingNextPage } =
+    useInfiniteQuery({
+      queryKey: [
+        "modrinthSearch",
+        debouncedQuery,
+        projectType,
+        gameVersion,
+        modloader,
+      ],
+      queryFn: async ({ pageParam = 0 }) => {
         const res = await commands.searchModrinth(
-          q,
+          debouncedQuery,
           projectType,
           gameVersion,
           modloader,
-          off,
+          pageParam,
         );
-        if (res.status === "ok") {
-          append
-            ? setResults((p) => [...p, ...res.data])
-            : setResults(res.data);
-          setHasMore(res.data.length >= 20);
-        } else {
-          setError(res.error);
-        }
-      } catch (e: any) {
-        setError(e.toString());
-      } finally {
-        setLoading(false);
-      }
-    },
-    [projectType, gameVersion, modloader],
-  );
+        if (res.status === "ok") return res.data;
+        throw new Error(res.error);
+      },
+      initialPageParam: 0,
+      getNextPageParam: (lastPage, allPages) =>
+        lastPage.length >= 20 ? allPages.length * 20 : undefined,
+    });
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setOffset(0);
-      doSearch(query, 0, false);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [query, doSearch]);
+  const results = data?.pages.flat() ?? [];
+  const loading = isFetching;
 
-  const loadMore = useCallback(() => {
-    const next = offset + 20;
-    setOffset(next);
-    doSearch(query, next, true);
-  }, [offset, query, doSearch]);
-
+  // infinite scroll observer
   const observer = useRef<IntersectionObserver | null>(null);
   const lastElementRef = useCallback(
     (node: HTMLElement | null) => {
-      if (loading) return;
+      if (isFetchingNextPage) return;
       if (observer.current) observer.current.disconnect();
       observer.current = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && hasMore) {
-          loadMore();
+        if (entries[0].isIntersecting && hasNextPage) {
+          fetchNextPage();
         }
       });
       if (node) observer.current.observe(node);
     },
-    [loading, hasMore, loadMore],
+    [isFetchingNextPage, hasNextPage, fetchNextPage],
   );
 
   const openVersionPicker = async (item: ModpackSearchResult) => {
@@ -287,9 +279,9 @@ export function ModrinthBrowsePage({
           ))}
         </div>
 
-        {hasMore && results.length > 0 && (
+        {hasNextPage && results.length > 0 && (
           <div ref={lastElementRef} className="flex justify-center py-3 h-10">
-            {loading && <div className="spinner" />}
+            {isFetchingNextPage && <div className="spinner" />}
           </div>
         )}
       </div>

@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Profile, commands } from "../bindings";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,40 +30,27 @@ export function InstanceViewPage({
   onEdit,
   onBrowseModrinth,
 }: InstanceViewPageProps) {
-  const [mods, setMods] = useState<string[]>([]);
-  const [shaders, setShaders] = useState<string[]>([]);
-  const [resourcePacks, setResourcePacks] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("mods");
 
-  useEffect(() => {
-    async function loadDetails() {
-      setLoading(true);
-      try {
-        const [modsRes, shadersRes, rpRes] = await Promise.all([
-          commands.listMods(profile.id),
-          commands.listShaders(profile.id),
-          commands.listResourcePacks(profile.id),
-        ]);
+  const { data: details, isLoading: loading } = useQuery({
+    queryKey: ["instanceDetails", profile.id],
+    queryFn: async () => {
+      const [modsRes, shadersRes, rpRes] = await Promise.all([
+        commands.listMods(profile.id),
+        commands.listShaders(profile.id),
+        commands.listResourcePacks(profile.id),
+      ]);
+      return {
+        mods: modsRes.status === "ok" ? modsRes.data : [],
+        shaders: shadersRes.status === "ok" ? shadersRes.data : [],
+        resourcePacks: rpRes.status === "ok" ? rpRes.data : [],
+      };
+    },
+  });
 
-        if (modsRes.status === "ok") {
-          setMods(modsRes.data);
-        }
-        if (shadersRes.status === "ok") {
-          setShaders(shadersRes.data);
-        }
-        if (rpRes.status === "ok") {
-          setResourcePacks(rpRes.data);
-        }
-      } catch (e) {
-        console.error("Failed to load instance details", e);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadDetails();
-  }, [profile.id]);
+  const mods = details?.mods ?? [];
+  const shaders = details?.shaders ?? [];
+  const resourcePacks = details?.resourcePacks ?? [];
 
   const modLabel =
     profile.modloader === "none"
