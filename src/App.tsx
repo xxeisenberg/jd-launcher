@@ -301,7 +301,7 @@ function App() {
 
   const VIEW_LABELS: Record<View, string> = {
     instances: "Instances",
-    modpacks: "Modrinth",
+    modpacks: "Modpacks",
     settings: "Settings",
     "instance-view": "Instance Details",
     "instance-modrinth": "Browse Modrinth",
@@ -357,12 +357,12 @@ function App() {
                 </SidebarMenuItem>
                 <SidebarMenuItem>
                   <SidebarMenuButton
-                    tooltip="Modrinth"
+                    tooltip="Modpacks"
                     isActive={currentView === "modpacks"}
                     onClick={() => setCurrentView("modpacks")}
                   >
                     <PackageIcon />
-                    <span>Modrinth</span>
+                    <span>Modpacks</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>

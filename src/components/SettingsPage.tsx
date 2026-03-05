@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { ACCENT_COLORS, FONTS, UI_STYLES } from "@/lib/themes";
 
@@ -397,15 +398,20 @@ function CheckboxField({
   checked: boolean;
   onChange: (v: boolean) => void;
 }) {
+  const id = React.useId();
   return (
-    <label className="flex items-center gap-2.5 cursor-pointer text-sm">
-      <input
-        type="checkbox"
+    <div className="flex items-center gap-2.5">
+      <Checkbox
+        id={id}
         checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="w-4 h-4 rounded border-border accent-primary"
+        onCheckedChange={(v) => onChange(!!v)}
       />
-      {label}
-    </label>
+      <Label
+        htmlFor={id}
+        className="text-sm font-normal leading-none cursor-pointer"
+      >
+        {label}
+      </Label>
+    </div>
   );
 }

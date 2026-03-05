@@ -48,10 +48,6 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
 
   const doSearch = useCallback(
     async (q: string, off: number, append: boolean) => {
-      if (!q.trim()) {
-        if (!append) setResults([]);
-        return;
-      }
       setLoading(true);
       setError(null);
       try {
@@ -175,16 +171,19 @@ export function ModpackBrowser({ onInstalled }: ModpackBrowserProps) {
       )}
 
       {/* empty states */}
-      {results.length === 0 && !loading && query.trim() === "" && (
+      {results.length === 0 && !loading && (
         <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-          <PackageIcon className="w-10 h-10 opacity-30" />
-          <p className="text-sm">Search Modrinth to find modpacks</p>
-        </div>
-      )}
-      {results.length === 0 && !loading && query.trim() !== "" && (
-        <div className="flex-1 flex flex-col items-center justify-center gap-2 text-muted-foreground">
-          <SearchIcon className="w-10 h-10 opacity-30" />
-          <p className="text-sm">No results found</p>
+          {query.trim() === "" ? (
+            <>
+              <PackageIcon className="w-10 h-10 opacity-30" />
+              <p className="text-sm">No modpacks found</p>
+            </>
+          ) : (
+            <>
+              <SearchIcon className="w-10 h-10 opacity-30" />
+              <p className="text-sm">No results found for "{query}"</p>
+            </>
+          )}
         </div>
       )}
 

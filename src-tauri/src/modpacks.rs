@@ -148,9 +148,14 @@ pub async fn search_modpacks(
     let client = modrinth_client();
     let encoded_query = urlencod(&query);
     let encoded_facets = urlencod(r#"[["project_type:modpack"]]"#);
+    let index = if query.is_empty() {
+        "downloads"
+    } else {
+        "relevance"
+    };
     let url = format!(
-        "{}/search?query={}&facets={}&limit=20&offset={}&index=relevance",
-        MODRINTH_API, encoded_query, encoded_facets, offset
+        "{}/search?query={}&facets={}&limit=20&offset={}&index={}",
+        MODRINTH_API, encoded_query, encoded_facets, offset, index
     );
 
     let resp = client
@@ -533,9 +538,14 @@ pub async fn search_modrinth(
     let facets_str = format!("[{}]", facets.join(","));
     let encoded_facets = urlencod(&facets_str);
 
+    let index = if query.is_empty() {
+        "downloads"
+    } else {
+        "relevance"
+    };
     let url = format!(
-        "{}/search?query={}&facets={}&limit=20&offset={}&index=relevance",
-        MODRINTH_API, encoded_query, encoded_facets, offset
+        "{}/search?query={}&facets={}&limit=20&offset={}&index={}",
+        MODRINTH_API, encoded_query, encoded_facets, offset, index
     );
 
     let resp = client
