@@ -36,9 +36,9 @@ async saveProfile(profile: Profile) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async deleteProfile(id: string) : Promise<Result<null, string>> {
+async deleteProfile(id: string, deleteFolder: boolean) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_profile", { id }) };
+    return { status: "ok", data: await TAURI_INVOKE("delete_profile", { id, deleteFolder }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

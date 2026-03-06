@@ -193,12 +193,24 @@ pub fn save_profile(profile: Profile) -> Result<(), String> {
 
 #[tauri::command]
 #[specta::specta]
-pub fn delete_profile(id: String) -> Result<(), String> {
+pub fn delete_profile(id: String, delete_folder: bool) -> Result<(), String> {
     let mut config = load_profiles();
+    let profile = config.profiles.iter().find(|p| p.id == id).cloned();
+
     config.profiles.retain(|p| p.id != id);
     if config.last_profile_id.as_deref() == Some(&id) {
         config.last_profile_id = None;
     }
+
+    if delete_folder {
+        if let Some(p) = profile {
+            let path = std::path::PathBuf::from(p.game_dir);
+            if path.exists() {
+                let _ = std::fs::remove_dir_all(path);
+            }
+        }
+    }
+
     save_profiles(&config)
 }
 

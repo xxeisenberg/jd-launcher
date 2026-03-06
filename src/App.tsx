@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/sidebar";
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -97,6 +98,7 @@ function App() {
   const [launching, setLaunching] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalState>({ kind: "closed" });
   const [deleteConfirm, setDeleteConfirm] = useState<Profile | null>(null);
+  const [deleteFolder, setDeleteFolder] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentView, setCurrentView] = useState<View>("instances");
   const [activeInstance, setActiveInstance] = useState<Profile | null>(null);
@@ -254,8 +256,9 @@ function App() {
   }
 
   async function handleDelete(profile: Profile) {
-    await commands.deleteProfile(profile.id);
+    await commands.deleteProfile(profile.id, deleteFolder);
     setDeleteConfirm(null);
+    setDeleteFolder(false);
     invalidateProfiles();
   }
 
@@ -624,7 +627,10 @@ function App() {
                       onLaunch={handleLaunch}
                       onEdit={(p) => setModal({ kind: "edit", profile: p })}
                       onDuplicate={handleDuplicate}
-                      onDelete={(p) => setDeleteConfirm(p)}
+                      onDelete={(p) => {
+                        setDeleteConfirm(p);
+                        setDeleteFolder(false);
+                      }}
                       onExport={handleExport}
                       onView={(p) => {
                         setActiveInstance(p);
@@ -643,7 +649,10 @@ function App() {
                       onLaunch={handleLaunch}
                       onEdit={(p) => setModal({ kind: "edit", profile: p })}
                       onDuplicate={handleDuplicate}
-                      onDelete={(p) => setDeleteConfirm(p)}
+                      onDelete={(p) => {
+                        setDeleteConfirm(p);
+                        setDeleteFolder(false);
+                      }}
                       onExport={handleExport}
                       onView={(p) => {
                         setActiveInstance(p);
@@ -742,23 +751,43 @@ function App() {
         />
       )}
 
-      {/* delete confirm */}
       {deleteConfirm && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
-          onClick={() => setDeleteConfirm(null)}
+          onClick={() => {
+            setDeleteConfirm(null);
+            setDeleteFolder(false);
+          }}
         >
           <div
             className="bg-card border border-border rounded-xl p-6 w-[360px] space-y-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <h2 className="text-base font-semibold">Delete Profile?</h2>
-            <p className="text-sm text-muted-foreground">
-              Delete <strong>"{deleteConfirm.name}"</strong>? The game directory
-              will <em>not</em> be removed.
+            <p className="text-sm text-muted-foreground mb-4">
+              Delete <strong>"{deleteConfirm.name}"</strong>?
             </p>
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setDeleteConfirm(null)}>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="delete-folder"
+                checked={deleteFolder}
+                onCheckedChange={(c) => setDeleteFolder(c === true)}
+              />
+              <label
+                htmlFor="delete-folder"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Delete instance folder
+              </label>
+            </div>
+            <div className="flex gap-2 justify-end mt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDeleteConfirm(null);
+                  setDeleteFolder(false);
+                }}
+              >
                 Cancel
               </Button>
               <Button
