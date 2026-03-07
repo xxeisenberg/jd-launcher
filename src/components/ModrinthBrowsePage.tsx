@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { commands } from "../bindings";
 import type { ModpackSearchResult, ModpackVersion } from "../bindings";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,9 @@ import {
   PackageIcon,
   CheckIcon,
   XIcon,
+  PackageCheckIcon,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 
 interface ModrinthBrowsePageProps {
   profileId: string;
@@ -43,6 +45,7 @@ function useDebouncedValue(value: string, ms = 400) {
 }
 
 export function ModrinthBrowsePage({
+  profileId,
   gameDir,
   gameVersion,
   modloader,
@@ -56,7 +59,7 @@ export function ModrinthBrowsePage({
   );
   const [versions, setVersions] = useState<ModpackVersion[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(false);
-  const [installing, setInstalling] = useState(false);
+  const [installing, setInstalling] = useState<string | null>(null);
   const [installedVersions, setInstalledVersions] = useState<Set<string>>(
     new Set(),
   );
@@ -64,6 +67,34 @@ export function ModrinthBrowsePage({
 
   const subfolder = SUBFOLDER_MAP[projectType];
   const label = LABEL_MAP[projectType];
+
+  const { data: localFiles } = useQuery({
+    queryKey: ["localContent", profileId, projectType],
+    queryFn: async () => {
+      const res =
+        projectType === "mod"
+          ? await commands.listMods(profileId)
+          : projectType === "shader"
+            ? await commands.listShaders(profileId)
+            : await commands.listResourcePacks(profileId);
+      return res.status === "ok" ? res.data : [];
+    },
+  });
+
+  const isAlreadyInstalled = (item: ModpackSearchResult) => {
+    if (!localFiles) return false;
+    // Basic check: match title/slug in filenames (fuzzy but helps)
+    const normalizedTitle = item.title.toLowerCase().replace(/\s+/g, "");
+    const normalizedSlug = item.slug.toLowerCase();
+    return localFiles.some((f) => {
+      const low = f.toLowerCase();
+      return (
+        low.includes(normalizedTitle) ||
+        low.includes(normalizedSlug) ||
+        low.includes(item.project_id.toLowerCase())
+      );
+    });
+  };
 
   const { data, fetchNextPage, hasNextPage, isFetching, isFetchingNextPage } =
     useInfiniteQuery({
@@ -136,11 +167,13 @@ export function ModrinthBrowsePage({
     }
   };
 
+  const qc = useQueryClient();
+
   const handleInstall = async (
     item: ModpackSearchResult,
     ver: ModpackVersion,
   ) => {
-    setInstalling(true);
+    setInstalling(ver.version_id);
     setError(null);
     try {
       const res = await commands.installModrinthContent(
@@ -151,13 +184,17 @@ export function ModrinthBrowsePage({
       );
       if (res.status === "ok") {
         setInstalledVersions((prev) => new Set([...prev, ver.version_id]));
+        qc.invalidateQueries({
+          queryKey: ["localContent", profileId, projectType],
+        });
+        qc.invalidateQueries({ queryKey: ["instanceDetails", profileId] });
       } else {
         setError(res.error);
       }
     } catch (e: any) {
       setError(e.toString());
     } finally {
-      setInstalling(false);
+      setInstalling(null);
     }
   };
 
@@ -240,6 +277,15 @@ export function ModrinthBrowsePage({
 
                   <div className="flex flex-col items-end gap-2.5 shrink-0">
                     <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground mb-1">
+                      {isAlreadyInstalled(item) && (
+                        <Badge
+                          variant="secondary"
+                          className="bg-green-500/10 text-green-500 border-green-500/20 gap-1 px-1.5 h-5 flex items-center"
+                        >
+                          <PackageCheckIcon className="w-3 h-3" />
+                          Installed
+                        </Badge>
+                      )}
                       <span className="flex items-center gap-1.5 transition-colors group-hover:text-foreground/80">
                         <DownloadIcon className="w-3.5 h-3.5" />{" "}
                         {fmtDl(item.downloads)}
@@ -290,7 +336,7 @@ export function ModrinthBrowsePage({
       {selectedItem && (
         <div
           className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
-          onClick={() => !installing && setSelectedItem(null)}
+          onClick={() => installing === null && setSelectedItem(null)}
         >
           <div
             className="bg-card border border-border rounded-xl w-[520px] max-w-[calc(100vw-40px)] max-h-[calc(100vh-80px)] flex flex-col shadow-xl"
@@ -308,7 +354,7 @@ export function ModrinthBrowsePage({
                 {selectedItem.title}
               </h2>
               <button
-                onClick={() => !installing && setSelectedItem(null)}
+                onClick={() => installing === null && setSelectedItem(null)}
                 className="text-muted-foreground hover:text-foreground"
               >
                 <XIcon className="w-4 h-4" />
@@ -365,9 +411,9 @@ export function ModrinthBrowsePage({
                         size="sm"
                         className="h-7"
                         onClick={() => handleInstall(selectedItem, ver)}
-                        disabled={installing}
+                        disabled={installing !== null}
                       >
-                        {installing ? "…" : "Install"}
+                        {installing === ver.version_id ? "…" : "Install"}
                       </Button>
                     )}
                   </div>

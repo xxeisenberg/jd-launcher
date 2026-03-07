@@ -10,10 +10,24 @@ import {
   SettingsIcon,
   PlayIcon,
   PlusIcon,
+  Trash2Icon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import { useQueryClient } from "@tanstack/react-query";
+import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface InstanceViewPageProps {
   profile: Profile;
@@ -30,10 +44,39 @@ export function InstanceViewPage({
   onEdit,
   onBrowseModrinth,
 }: InstanceViewPageProps) {
+  const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState("mods");
+  const [deleteDialog, setDeleteDialog] = useState<{
+    isOpen: boolean;
+    subfolder: string;
+    name: string;
+  }>({ isOpen: false, subfolder: "", name: "" });
+
+  const invalidateContent = () => {
+    qc.invalidateQueries({ queryKey: ["instanceDetails", profile.id] });
+  };
+
+  const handleToggle = async (subfolder: string, name: string) => {
+    await commands.toggleContent(profile.id, subfolder, name);
+    invalidateContent();
+  };
+
+  const handleDelete = (subfolder: string, name: string) => {
+    setDeleteDialog({ isOpen: true, subfolder, name });
+  };
+
+  const confirmDelete = async () => {
+    const { subfolder, name } = deleteDialog;
+    if (!subfolder || !name) return;
+
+    await commands.deleteContent(profile.id, subfolder, name);
+    invalidateContent();
+    setDeleteDialog({ isOpen: false, subfolder: "", name: "" });
+  };
 
   const { data: details, isLoading: loading } = useQuery({
     queryKey: ["instanceDetails", profile.id],
+    staleTime: 0,
     queryFn: async () => {
       const [modsRes, shadersRes, rpRes] = await Promise.all([
         commands.listMods(profile.id),
@@ -196,10 +239,40 @@ export function InstanceViewPage({
                     mods.map((mod, i) => (
                       <div
                         key={i}
-                        className="flex px-4 py-2 border rounded-lg items-center gap-3 bg-background group"
+                        className="flex px-4 py-2 border rounded-lg items-center gap-3 bg-background group hover:border-primary/50 transition-colors"
                       >
-                        <FileBoxIcon className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">{mod}</span>
+                        <FileBoxIcon
+                          className={cn(
+                            "w-4 h-4",
+                            mod.endsWith(".disabled")
+                              ? "text-muted-foreground/40"
+                              : "text-primary/70",
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "text-sm font-medium flex-1 truncate",
+                            mod.endsWith(".disabled") &&
+                              "text-muted-foreground line-through opacity-50",
+                          )}
+                        >
+                          {mod.replace(".disabled", "")}
+                        </span>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Switch
+                            checked={!mod.endsWith(".disabled")}
+                            onCheckedChange={() => handleToggle("mods", mod)}
+                            className="scale-75"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDelete("mods", mod)}
+                          >
+                            <Trash2Icon className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -229,10 +302,42 @@ export function InstanceViewPage({
                     shaders.map((shader, i) => (
                       <div
                         key={i}
-                        className="flex px-4 py-2 border rounded-lg items-center gap-3 bg-background group"
+                        className="flex px-4 py-2 border rounded-lg items-center gap-3 bg-background group hover:border-primary/50 transition-colors"
                       >
-                        <ImageIcon className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">{shader}</span>
+                        <ImageIcon
+                          className={cn(
+                            "w-4 h-4",
+                            shader.endsWith(".disabled")
+                              ? "text-muted-foreground/40"
+                              : "text-primary/70",
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "text-sm font-medium flex-1 truncate",
+                            shader.endsWith(".disabled") &&
+                              "text-muted-foreground line-through opacity-50",
+                          )}
+                        >
+                          {shader.replace(".disabled", "")}
+                        </span>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Switch
+                            checked={!shader.endsWith(".disabled")}
+                            onCheckedChange={() =>
+                              handleToggle("shaderpacks", shader)
+                            }
+                            className="scale-75"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDelete("shaderpacks", shader)}
+                          >
+                            <Trash2Icon className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -262,10 +367,42 @@ export function InstanceViewPage({
                     resourcePacks.map((pack, i) => (
                       <div
                         key={i}
-                        className="flex px-4 py-2 border rounded-lg items-center gap-3 bg-background group"
+                        className="flex px-4 py-2 border rounded-lg items-center gap-3 bg-background group hover:border-primary/50 transition-colors"
                       >
-                        <PaletteIcon className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">{pack}</span>
+                        <PaletteIcon
+                          className={cn(
+                            "w-4 h-4",
+                            pack.endsWith(".disabled")
+                              ? "text-muted-foreground/40"
+                              : "text-primary/70",
+                          )}
+                        />
+                        <span
+                          className={cn(
+                            "text-sm font-medium flex-1 truncate",
+                            pack.endsWith(".disabled") &&
+                              "text-muted-foreground line-through opacity-50",
+                          )}
+                        >
+                          {pack.replace(".disabled", "")}
+                        </span>
+                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <Switch
+                            checked={!pack.endsWith(".disabled")}
+                            onCheckedChange={() =>
+                              handleToggle("resourcepacks", pack)
+                            }
+                            className="scale-75"
+                          />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDelete("resourcepacks", pack)}
+                          >
+                            <Trash2Icon className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     ))
                   )}
@@ -347,6 +484,32 @@ export function InstanceViewPage({
           </div>
         </Tabs>
       </div>
+
+      <AlertDialog
+        open={deleteDialog.isOpen}
+        onOpenChange={(isOpen) =>
+          setDeleteDialog((prev) => ({ ...prev, isOpen }))
+        }
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {deleteDialog.name.replace(".disabled", "")}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete{" "}
+              {deleteDialog.name.replace(".disabled", "")}? This action cannot
+              be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={confirmDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

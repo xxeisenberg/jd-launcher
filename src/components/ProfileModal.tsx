@@ -8,6 +8,7 @@ import type {
   LauncherSettings,
 } from "../bindings";
 import { commands } from "../bindings";
+import { open } from "@tauri-apps/plugin-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,7 +19,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { XIcon, DownloadIcon } from "lucide-react";
+import {
+  XIcon,
+  DownloadIcon,
+  FolderOpenIcon,
+  SearchIcon as FileSearchIcon,
+} from "lucide-react";
 
 interface ProfileModalProps {
   initial: Partial<Profile> | null;
@@ -206,6 +212,26 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
     }
   };
 
+  const handleBrowseJava = async () => {
+    const selected = await open({
+      multiple: false,
+      filters: [{ name: "Executable", extensions: ["exe", "bin", "sh", "*"] }],
+    });
+    if (selected && typeof selected === "string") {
+      set("java_path", selected);
+    }
+  };
+
+  const handleBrowseGameDir = async () => {
+    const selected = await open({
+      multiple: false,
+      directory: true,
+    });
+    if (selected && typeof selected === "string") {
+      set("game_dir", selected);
+    }
+  };
+
   const updateMemory = (mb: number) => {
     let args = form.jvm_args;
     if (/-Xmx\d+[GMmKgk]/.test(args)) {
@@ -344,11 +370,21 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
           </div>
 
           <Field label="Game Directory">
-            <Input
-              value={form.game_dir}
-              onChange={(e) => set("game_dir", e.target.value)}
-              className="font-mono text-xs"
-            />
+            <div className="flex gap-2">
+              <Input
+                value={form.game_dir}
+                onChange={(e) => set("game_dir", e.target.value)}
+                className="font-mono text-xs flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleBrowseGameDir}
+              >
+                <FolderOpenIcon className="w-3.5 h-3.5" />
+              </Button>
+            </div>
           </Field>
 
           <Field label="Java Path" hint="Leave blank to auto-detect">
@@ -393,12 +429,22 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
                 {downloadPhase}
               </p>
             )}
-            <Input
-              value={form.java_path ?? ""}
-              onChange={(e) => set("java_path", e.target.value || null)}
-              placeholder="Or custom path…"
-              className="mt-2 font-mono text-xs"
-            />
+            <div className="flex gap-2 mt-2">
+              <Input
+                value={form.java_path ?? ""}
+                onChange={(e) => set("java_path", e.target.value || null)}
+                placeholder="Or custom path…"
+                className="font-mono text-xs flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleBrowseJava}
+              >
+                <FileSearchIcon className="w-3.5 h-3.5" />
+              </Button>
+            </div>
           </Field>
 
           <Field label={`Memory: ${getMemoryMb()} MB`}>

@@ -262,6 +262,22 @@ async installModrinthContent(projectId: string, versionId: string, gameDir: stri
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async toggleContent(profileId: string, subfolder: string, currentName: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("toggle_content", { profileId, subfolder, currentName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteContent(profileId: string, subfolder: string, fileName: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_content", { profileId, subfolder, fileName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 

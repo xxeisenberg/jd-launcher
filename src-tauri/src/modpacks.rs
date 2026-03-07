@@ -614,7 +614,8 @@ pub async fn install_modrinth_content(
         .or(version.files.first())
         .ok_or("No files in version")?;
 
-    let target_dir = std::path::PathBuf::from(&game_dir).join(&subfolder);
+    let expanded_game_dir = crate::helper::expand_path(&game_dir);
+    let target_dir = std::path::PathBuf::from(expanded_game_dir).join(&subfolder);
     std::fs::create_dir_all(&target_dir).map_err(|e| format!("Failed to create dir: {}", e))?;
 
     let target_path = target_dir.join(&primary_file.filename);

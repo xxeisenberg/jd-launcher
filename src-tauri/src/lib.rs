@@ -21,9 +21,9 @@ use crate::modpacks::{
 };
 use crate::mojang_api::{download_version_and_run, get_available_versions, save_log_file};
 use crate::profiles::{
-    delete_profile, duplicate_profile, export_profile, get_last_profile_id, get_settings,
-    import_profile, list_mods, list_profiles, list_resource_packs, list_shaders, reset_settings,
-    save_profile, set_last_profile_id, update_settings,
+    delete_content, delete_profile, duplicate_profile, export_profile, get_last_profile_id,
+    get_settings, import_profile, list_mods, list_profiles, list_resource_packs, list_shaders,
+    reset_settings, save_profile, set_last_profile_id, toggle_content, update_settings,
 };
 #[cfg(debug_assertions)]
 use specta_typescript::Typescript;
@@ -87,7 +87,9 @@ pub fn run() {
         update_modpack,
         get_system_memory_mb,
         search_modrinth,
-        install_modrinth_content
+        install_modrinth_content,
+        toggle_content,
+        delete_content
     ]);
 
     #[cfg(debug_assertions)]

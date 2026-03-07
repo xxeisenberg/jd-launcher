@@ -204,7 +204,8 @@ pub fn delete_profile(id: String, delete_folder: bool) -> Result<(), String> {
 
     if delete_folder {
         if let Some(p) = profile {
-            let path = std::path::PathBuf::from(p.game_dir);
+            let expanded_path = crate::helper::expand_path(&p.game_dir);
+            let path = std::path::PathBuf::from(expanded_path);
             if path.exists() {
                 let _ = std::fs::remove_dir_all(path);
             }
@@ -289,7 +290,8 @@ pub fn list_mods(profile_id: String) -> Result<Vec<String>, String> {
         .find(|p| p.id == profile_id)
         .ok_or_else(|| format!("Profile '{}' not found", profile_id))?;
 
-    let mods_dir = PathBuf::from(&profile.game_dir).join("mods");
+    let expanded_path = crate::helper::expand_path(&profile.game_dir);
+    let mods_dir = PathBuf::from(expanded_path).join("mods");
     if !mods_dir.exists() {
         return Ok(Vec::new());
     }
@@ -299,11 +301,9 @@ pub fn list_mods(profile_id: String) -> Result<Vec<String>, String> {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         if path.is_file() {
-            if let Some(ext) = path.extension() {
-                if ext == "jar" {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        mods.push(name.to_string());
-                    }
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.ends_with(".jar") || name.ends_with(".disabled") {
+                    mods.push(name.to_string());
                 }
             }
         }
@@ -324,7 +324,8 @@ pub fn list_shaders(profile_id: String) -> Result<Vec<String>, String> {
         .find(|p| p.id == profile_id)
         .ok_or_else(|| format!("Profile '{}' not found", profile_id))?;
 
-    let shaders_dir = PathBuf::from(&profile.game_dir).join("shaderpacks");
+    let expanded_path = crate::helper::expand_path(&profile.game_dir);
+    let shaders_dir = PathBuf::from(expanded_path).join("shaderpacks");
     if !shaders_dir.exists() {
         return Ok(Vec::new());
     }
@@ -358,7 +359,8 @@ pub fn list_resource_packs(profile_id: String) -> Result<Vec<String>, String> {
         .find(|p| p.id == profile_id)
         .ok_or_else(|| format!("Profile '{}' not found", profile_id))?;
 
-    let rp_dir = PathBuf::from(&profile.game_dir).join("resourcepacks");
+    let expanded_path = crate::helper::expand_path(&profile.game_dir);
+    let rp_dir = PathBuf::from(expanded_path).join("resourcepacks");
     if !rp_dir.exists() {
         return Ok(Vec::new());
     }
@@ -408,7 +410,8 @@ pub fn export_profile(id: String, dest_path: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     // Write game dir
-    let game_dir = PathBuf::from(&profile.game_dir);
+    let expanded_path = crate::helper::expand_path(&profile.game_dir);
+    let game_dir = PathBuf::from(expanded_path);
     if game_dir.exists() {
         add_dir_to_zip(&mut zip, &game_dir, &game_dir, options)?;
     }
@@ -504,4 +507,75 @@ pub fn import_profile(zip_path: String) -> Result<Profile, String> {
     config.profiles.push(profile.clone());
     save_profiles(&config)?;
     Ok(profile)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn toggle_content(
+    profile_id: String,
+    subfolder: String,
+    current_name: String,
+) -> Result<String, String> {
+    let config = load_profiles();
+    let profile = config
+        .profiles
+        .iter()
+        .find(|p| p.id == profile_id)
+        .ok_or_else(|| format!("Profile '{}' not found", profile_id))?;
+
+    let expanded_path = crate::helper::expand_path(&profile.game_dir);
+    let base_dir = std::path::PathBuf::from(expanded_path).join(&subfolder);
+    if !base_dir.exists() {
+        return Err(format!("Folder {} does not exist", subfolder));
+    }
+
+    let source = base_dir.join(&current_name);
+    if !source.exists() {
+        return Err(format!("File {} does not exist", current_name));
+    }
+
+    let is_disabled = current_name.ends_with(".disabled");
+    let target_name = if is_disabled {
+        current_name.strip_suffix(".disabled").unwrap().to_string()
+    } else {
+        format!("{}.disabled", current_name)
+    };
+
+    let target = base_dir.join(&target_name);
+    std::fs::rename(&source, &target).map_err(|e| format!("Failed to toggle file: {}", e))?;
+
+    Ok(target_name)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn delete_content(
+    profile_id: String,
+    subfolder: String,
+    file_name: String,
+) -> Result<(), String> {
+    let config = load_profiles();
+    let profile = config
+        .profiles
+        .iter()
+        .find(|p| p.id == profile_id)
+        .ok_or_else(|| format!("Profile '{}' not found", profile_id))?;
+
+    let expanded_path = crate::helper::expand_path(&profile.game_dir);
+    let target = std::path::PathBuf::from(expanded_path)
+        .join(&subfolder)
+        .join(&file_name);
+
+    if !target.exists() {
+        return Ok(());
+    }
+
+    if target.is_dir() {
+        std::fs::remove_dir_all(&target)
+            .map_err(|e| format!("Failed to delete directory: {}", e))?;
+    } else {
+        std::fs::remove_file(&target).map_err(|e| format!("Failed to delete file: {}", e))?;
+    }
+
+    Ok(())
 }
