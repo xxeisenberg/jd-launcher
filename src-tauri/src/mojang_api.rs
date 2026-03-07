@@ -324,8 +324,9 @@ pub async fn download_version_and_run(
         url: String,
         path: String,
         sha1: String,
+        needs_download: bool,
     }
-    let mut lib_tasks_needed: Vec<LibTask> = Vec::new();
+    let mut lib_tasks: Vec<LibTask> = Vec::new();
 
     for lib in &to_download_libs {
         if let Some(artifact) = &lib.downloads.artifact {
@@ -335,15 +336,12 @@ pub async fn download_version_and_run(
                     .join(rel_path)
                     .to_string_lossy()
                     .to_string();
-                let needs = !std::path::Path::new(&lib_path).exists()
-                    || !verify_file(&lib_path, &artifact.sha1).unwrap_or(false);
-                if needs {
-                    lib_tasks_needed.push(LibTask {
-                        url: artifact.url.clone(),
-                        path: lib_path,
-                        sha1: artifact.sha1.clone(),
-                    });
-                }
+                lib_tasks.push(LibTask {
+                    url: artifact.url.clone(),
+                    path: lib_path,
+                    sha1: artifact.sha1.clone(),
+                    needs_download: false,
+                });
             }
         }
         if let Some(natives_map) = &lib.natives {
@@ -356,21 +354,56 @@ pub async fn download_version_and_run(
                                 .join(rel_path)
                                 .to_string_lossy()
                                 .to_string();
-                            let needs = !std::path::Path::new(&lib_path).exists()
-                                || !verify_file(&lib_path, &native_file.sha1).unwrap_or(false);
-                            if needs {
-                                lib_tasks_needed.push(LibTask {
-                                    url: native_file.url.clone(),
-                                    path: lib_path,
-                                    sha1: native_file.sha1.clone(),
-                                });
-                            }
+                            lib_tasks.push(LibTask {
+                                url: native_file.url.clone(),
+                                path: lib_path,
+                                sha1: native_file.sha1.clone(),
+                                needs_download: false,
+                            });
                         }
                     }
                 }
             }
         }
     }
+
+    let lib_total = lib_tasks.len();
+    let lib_verified_count = Arc::new(AtomicUsize::new(0));
+    let app_lib_clone = app.clone();
+
+    let lib_tasks: Vec<LibTask> = tokio::task::spawn_blocking(move || {
+        use rayon::prelude::*;
+        lib_tasks
+            .into_par_iter()
+            .map(|mut task| {
+                let exists = std::path::Path::new(&task.path).exists();
+                let valid = if exists {
+                    verify_file(&task.path, &task.sha1).unwrap_or(false)
+                } else {
+                    false
+                };
+                task.needs_download = !valid;
+
+                let done = lib_verified_count.fetch_add(1, Ordering::Relaxed) + 1;
+                if lib_total > 0 {
+                    let _ = app_lib_clone.emit(
+                        "download-progress",
+                        DownloadProgress {
+                            completed: done,
+                            total: lib_total,
+                            phase: "verifying-libraries".into(),
+                        },
+                    );
+                }
+                task
+            })
+            .collect::<Vec<LibTask>>()
+    })
+    .await
+    .map_err(|e| format!("Library verification failed: {:?}", e))?;
+
+    let lib_tasks_needed: Vec<LibTask> =
+        lib_tasks.into_iter().filter(|t| t.needs_download).collect();
 
     let lib_download_count = lib_tasks_needed.len();
     let lib_completed = Arc::new(AtomicUsize::new(0));
@@ -464,6 +497,10 @@ pub async fn download_version_and_run(
         })
         .collect();
 
+    let asset_total = asset_entries.len();
+    let asset_verified = Arc::new(AtomicUsize::new(0));
+    let app_verify_clone = app.clone();
+
     let needs_download: Vec<(String, String, String)> = tokio::task::spawn_blocking(move || {
         use rayon::prelude::*;
         asset_entries
@@ -471,6 +508,17 @@ pub async fn download_version_and_run(
             .filter(|(hash, path, _url)| {
                 let already_ok =
                     std::path::Path::new(path).exists() && verify_file(path, hash).unwrap_or(false);
+                let done = asset_verified.fetch_add(1, Ordering::Relaxed) + 1;
+                if done % 50 == 0 || done == asset_total {
+                    let _ = app_verify_clone.emit(
+                        "download-progress",
+                        DownloadProgress {
+                            completed: done,
+                            total: asset_total,
+                            phase: "verifying-assets".into(),
+                        },
+                    );
+                }
                 !already_ok
             })
             .collect()

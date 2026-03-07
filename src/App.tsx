@@ -299,6 +299,10 @@ function App() {
         return "Downloading assets…";
       case "modloader":
         return "Downloading modloader…";
+      case "verifying-libraries":
+        return "Verifying libraries…";
+      case "verifying-assets":
+        return "Verifying assets…";
       default:
         return "Preparing…";
     }
