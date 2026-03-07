@@ -57,6 +57,7 @@ pub struct ForgeVersionJson {
     pub main_class: String,
     pub libraries: Vec<ForgeLibEntry>,
     pub arguments: Option<LoaderArguments>,
+    #[allow(dead_code)]
     #[serde(rename = "minecraftArguments")]
     pub minecraft_arguments: Option<String>,
 }
@@ -77,7 +78,9 @@ pub struct ForgeLibDownloads {
 pub struct ForgeLibArtifact {
     pub path: Option<String>,
     pub url: Option<String>,
+    #[allow(dead_code)]
     pub sha1: Option<String>,
+    #[allow(dead_code)]
     pub size: Option<u64>,
 }
 
@@ -512,7 +515,9 @@ async fn download_and_process_installer(
 
     for entry_name in &maven_entries {
         let rel = entry_name.strip_prefix("maven/").unwrap_or(entry_name);
-        let dest = format!("{}/libraries/{}", shared_dir, rel);
+        let dest = std::path::PathBuf::from(shared_dir)
+            .join("libraries")
+            .join(rel);
         if std::path::Path::new(&dest).exists() {
             continue;
         }
@@ -523,7 +528,7 @@ async fn download_and_process_installer(
         let mut buf = Vec::new();
         f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
         std::fs::write(&dest, &buf).map_err(|e| e.to_string())?;
-        eprintln!("Extracted: {}", dest);
+        eprintln!("Extracted: {:?}", dest);
     }
 
     // 3. Extract data/ files for processors
@@ -541,12 +546,13 @@ async fn download_and_process_installer(
 
     // Use a hash of the URL to create a unique data directory per installer
     let url_hash = format!("{:x}", md5::compute(url.as_bytes()));
-    let data_dir = format!("{}/installer_data_{}", shared_dir, &url_hash[..8]);
+    let data_dir =
+        std::path::PathBuf::from(shared_dir).join(format!("installer_data_{}", &url_hash[..8]));
     std::fs::create_dir_all(&data_dir).ok();
 
     for entry_name in &data_entries {
         let filename = entry_name.strip_prefix("data/").unwrap_or(entry_name);
-        let dest = format!("{}/{}", data_dir, filename);
+        let dest = data_dir.join(filename);
         if !std::path::Path::new(&dest).exists() {
             let mut f = archive.by_name(entry_name).map_err(|e| e.to_string())?;
             let mut buf = Vec::new();
@@ -574,7 +580,9 @@ async fn download_and_process_installer(
                 .and_then(|d| d.artifact.as_ref())
                 .and_then(|a| a.path.clone())
                 .unwrap_or_else(|| maven_to_path(&lib.name));
-            let local = format!("{}/libraries/{}", shared_dir, rel_path);
+            let local = std::path::PathBuf::from(shared_dir)
+                .join("libraries")
+                .join(rel_path);
             if std::path::Path::new(&local).exists() {
                 continue;
             }
@@ -593,12 +601,15 @@ async fn download_and_process_installer(
                 .and_then(|d| d.artifact.as_ref())
                 .and_then(|a| a.sha1.clone())
                 .unwrap_or_default();
-            download_file_with_retry(&dl_url, &local, 3, &sha1).await?;
+            download_file_with_retry(&dl_url, &local.to_string_lossy(), 3, &sha1).await?;
         }
     }
 
     // 6. Build data variable map
-    let lib_dir = format!("{}/libraries", shared_dir);
+    let lib_dir = std::path::PathBuf::from(shared_dir)
+        .join("libraries")
+        .to_string_lossy()
+        .to_string();
     let mut vars: HashMap<String, String> = HashMap::new();
     vars.insert("SIDE".into(), side.into());
     vars.insert("MINECRAFT_JAR".into(), client_jar_path.into());
@@ -615,11 +626,14 @@ async fn download_and_process_installer(
             };
             let resolved = if val.starts_with('[') && val.ends_with(']') {
                 let coord = &val[1..val.len() - 1];
-                format!("{}/{}", lib_dir, maven_to_path(coord))
+                std::path::PathBuf::from(&lib_dir)
+                    .join(maven_to_path(coord))
+                    .to_string_lossy()
+                    .to_string()
             } else if val.starts_with('/') {
                 let filename = val.trim_start_matches('/');
                 let filename = filename.strip_prefix("data/").unwrap_or(filename);
-                format!("{}/{}", data_dir, filename)
+                data_dir.join(filename).to_string_lossy().to_string()
             } else if val.starts_with('\'') && val.ends_with('\'') {
                 val[1..val.len() - 1].to_string()
             } else {
@@ -651,10 +665,18 @@ async fn download_and_process_installer(
             }
 
             // Build classpath
-            let jar_path = format!("{}/{}", lib_dir, maven_to_path(&proc.jar));
+            let jar_path = std::path::PathBuf::from(&lib_dir)
+                .join(maven_to_path(&proc.jar))
+                .to_string_lossy()
+                .to_string();
             let mut cp_parts = vec![jar_path.clone()];
             for dep in &proc.classpath {
-                cp_parts.push(format!("{}/{}", lib_dir, maven_to_path(dep)));
+                cp_parts.push(
+                    std::path::PathBuf::from(&lib_dir)
+                        .join(maven_to_path(dep))
+                        .to_string_lossy()
+                        .to_string(),
+                );
             }
             let sep = if cfg!(windows) { ";" } else { ":" };
             let cp = cp_parts.join(sep);
@@ -729,7 +751,10 @@ fn subst(s: &str, vars: &HashMap<String, String>, lib_dir: &str) -> String {
     // Replace [maven:coordinate] artifact references with library paths
     if r.starts_with('[') && r.ends_with(']') && r.contains(':') {
         let coord = &r[1..r.len() - 1];
-        r = format!("{}/{}", lib_dir, maven_to_path(coord));
+        r = std::path::PathBuf::from(&lib_dir)
+            .join(maven_to_path(coord))
+            .to_string_lossy()
+            .to_string();
     }
     r
 }
@@ -860,7 +885,11 @@ pub async fn download_forge_libraries(
                     .path
                     .clone()
                     .unwrap_or_else(|| maven_to_path(&lib.name));
-                let local_path = format!("{}/libraries/{}", shared_dir, rel_path);
+                let local_path = std::path::PathBuf::from(shared_dir)
+                    .join("libraries")
+                    .join(rel_path)
+                    .to_string_lossy()
+                    .to_string();
                 paths.push(local_path.clone());
 
                 let url = artifact

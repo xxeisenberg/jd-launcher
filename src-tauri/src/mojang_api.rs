@@ -860,7 +860,7 @@ pub async fn download_version_and_run(
         mc_process.arg("--gameDir").arg(&game_dir);
         mc_process
             .arg("--assetsDir")
-            .arg(format!("{}/assets", shared_dir));
+            .arg(std::path::PathBuf::from(&shared_dir).join("assets"));
         mc_process
             .arg("--assetIndex")
             .arg(&blueprint.asset_index.id);
@@ -876,7 +876,7 @@ pub async fn download_version_and_run(
         mc_process.arg("--gameDir").arg(&game_dir);
         mc_process
             .arg("--assetsDir")
-            .arg(format!("{}/assets", shared_dir));
+            .arg(std::path::PathBuf::from(&shared_dir).join("assets"));
         mc_process
             .arg("--assetIndex")
             .arg(&blueprint.asset_index.id);
@@ -999,7 +999,7 @@ fn unzip_jar(file_path: &str, output_dir: &str) -> zip::result::ZipResult<()> {
             || file_name.ends_with(".dll")
             || file_name.ends_with(".dylib")
         {
-            let output_path = format!("{}/{}", output_dir, file_name);
+            let output_path = std::path::PathBuf::from(output_dir).join(&*file_name);
             let mut output_file = std::fs::File::create(&output_path)?;
             std::io::copy(&mut file, &mut output_file)?;
         }

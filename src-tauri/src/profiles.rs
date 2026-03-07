@@ -37,6 +37,7 @@ pub struct Profile {
 }
 
 impl Profile {
+    #[allow(dead_code)]
     pub fn new(
         name: impl Into<String>,
         version: impl Into<String>,
