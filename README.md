@@ -8,15 +8,16 @@
 
 ## 🚀 Overview
 
-**JD Launcher** is a custom Minecraft launcher focused on speed, beautiful design, and seamless user experience. It uses a modern tech stack to provide a native feel while remaining cross-platform compatible.
+**JD Launcher** is a modern, high-performance Minecraft launcher featuring deep Modrinth integration, Microsoft account support, and advanced instance management. Built with Tauri, Rust, and React, it provides a native feel while remaining cross-platform compatible.
 
 ### ✨ Features
-- **Fast Startup:** Built with Tauri and Rust for minimal overhead.
-- **Modern UI:** Designed with React, Tailwind CSS V4, and Shadcn UI.
-- **Dark Mode Support:** Fully themes with beautiful transitions.
-- **Type Safety:** Seamless frontend-to-backend communication strictly typed using `specta` and `tauri-specta`.
-- **Instance Management:** Easily create, modify, and launch customized Minecraft instances.
-- **Deep Integrations:** Integrated with external services for downloading and managing Modpacks directly within the app.
+- **🚀 Blazingly Fast**: Minimal resource footprint and fast startup thanks to Tauri and Rust.
+- **🔐 Microsoft Integration**: Seamless Xbox/Microsoft account authentication and management.
+- **📦 Modrinth Browser**: Search and install modpacks, mods, and more directly within the app.
+- **🛠️ Instance Control**: Full management of profiles, including duplication, importing/exporting, and content toggling.
+- **☕ Auto-Java**: Automatic detection and downloading of version-specific Java runtimes.
+- **🎨 Modern Aesthetic**: Polished UI built with React, Tailwind CSS v4, and shadcn/ui.
+- **🔗 Type-Safe**: Robust communication between frontend and backend via Specta.
 
 ## 🛠️ Built With
 

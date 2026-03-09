@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::PathBuf;
 
-const ONLINE_MODE: bool = false;
-
 const CLIENT_ID: &str = "YOUR_AZURE_CLIENT_ID";
 const AUTH_SCOPE: &str = "XboxLive.signin offline_access";
 
@@ -151,8 +149,7 @@ pub struct DeviceCodeInfo {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AccountsStore {
     accounts: Vec<MinecraftAccount>,
     device_code: Option<String>,
@@ -160,10 +157,9 @@ struct AccountsStore {
     device_code_expires: Option<u64>,
 }
 
-
 fn accounts_path() -> PathBuf {
     let base = crate::helper::get_app_dir();
-    
+
     base.join("accounts.json")
 }
 
@@ -352,7 +348,7 @@ async fn refresh_ms_token(refresh_token: &str) -> Result<MsTokenResponse, String
 #[tauri::command]
 #[specta::specta]
 pub fn get_auth_mode() -> bool {
-    ONLINE_MODE
+    crate::profiles::load_profiles().settings.online_mode
 }
 
 #[tauri::command]

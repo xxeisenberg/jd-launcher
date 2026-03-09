@@ -1,4 +1,5 @@
 use sha1::{Digest, Sha1};
+use sha2::Sha256;
 use std::{
     io::{BufReader, Read},
     path::{Path, PathBuf},
@@ -105,6 +106,23 @@ pub async fn download_file_with_retry(
 
 pub fn verify_file(file_path: &str, hash: &str) -> Result<bool, String> {
     let mut hasher = Sha1::new();
+    let file = std::fs::File::open(file_path).map_err(|e| e.to_string())?;
+    let mut reader = BufReader::with_capacity(64 * 1024, file);
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut buffer).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buffer[..n]);
+    }
+    let result = hasher.finalize();
+    let hex_result = format!("{:x}", result);
+    Ok(hex_result == hash)
+}
+
+pub fn verify_file_sha256(file_path: &str, hash: &str) -> Result<bool, String> {
+    let mut hasher = Sha256::new();
     let file = std::fs::File::open(file_path).map_err(|e| e.to_string())?;
     let mut reader = BufReader::with_capacity(64 * 1024, file);
     let mut buffer = [0u8; 64 * 1024];

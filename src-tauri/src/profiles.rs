@@ -74,6 +74,8 @@ impl Profile {
 pub struct LauncherSettings {
     pub theme: String,
     pub language: String,
+    #[serde(default = "default_online")]
+    pub online_mode: bool,
     #[serde(default = "default_accent")]
     pub accent_color: String,
     #[serde(default = "default_font")]
@@ -96,6 +98,9 @@ pub struct LauncherSettings {
     pub show_old_alpha: bool,
 }
 
+fn default_online() -> bool {
+    true
+}
 fn default_accent() -> String {
     "Blue".to_string()
 }
@@ -115,6 +120,7 @@ impl Default for LauncherSettings {
         Self {
             theme: "dark".to_string(),
             language: "en".to_string(),
+            online_mode: true,
             accent_color: "Blue".to_string(),
             font_family: "Geist".to_string(),
             ui_style: "Vega".to_string(),

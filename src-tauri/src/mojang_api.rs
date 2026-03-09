@@ -602,6 +602,15 @@ pub async fn download_version_and_run(
     let required_java_version = crate::java_manager::get_required_java_version(&blueprint.id);
     let mut java_cmd = profile.java_path.clone().filter(|s| !s.is_empty());
 
+    // Validate if specified path actually exists and works
+    if let Some(path) = &java_cmd {
+        if !std::path::Path::new(path).exists()
+            || crate::java_manager::get_java_version(path).is_none()
+        {
+            java_cmd = None;
+        }
+    }
+
     if java_cmd.is_none() {
         let sys_javas = crate::java_manager::detect_system_javas();
         if let Some(exact) = sys_javas
@@ -643,7 +652,7 @@ pub async fn download_version_and_run(
         .to_string();
 
     // ── Modloader integration ────────────────────────────────────────
-    let mut modloader_classpath: Vec<String> = Vec::new();
+    let mut modloader_classpath: Vec<(String, String)> = Vec::new();
     let mut modloader_main_class: Option<String> = None;
     let mut modloader_jvm_args: Vec<String> = Vec::new();
     let mut modloader_game_args: Vec<String> = Vec::new();
@@ -782,19 +791,38 @@ pub async fn download_version_and_run(
         .map(|a| replace_templates(a))
         .collect();
 
+    fn get_lib_identity(name: &str) -> String {
+        let parts: Vec<&str> = name.split(':').collect();
+        if parts.len() >= 4 {
+            format!("{}:{}:{}", parts[0], parts[1], parts[3])
+        } else if parts.len() >= 2 {
+            format!("{}:{}", parts[0], parts[1])
+        } else {
+            name.to_string()
+        }
+    }
+
     // ── Classpath ────────────────────────────────────────────────────
     // Modloader libs come first, then vanilla libs, then client jar
     let mut classpath_elements: Vec<String> = Vec::new();
+    let mut seen_identities: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // Modloader libraries (prepended)
-    for path in &modloader_classpath {
-        if !classpath_elements.contains(path) {
+    for (path, name) in &modloader_classpath {
+        let identity = get_lib_identity(name);
+        if !seen_identities.contains(&identity) {
             classpath_elements.push(path.clone());
+            seen_identities.insert(identity);
         }
     }
 
     // Vanilla libraries
     for lib in &to_download_libs {
+        let identity = get_lib_identity(&lib.name);
+        if seen_identities.contains(&identity) {
+            continue;
+        }
+
         if let Some(artifact) = &lib.downloads.artifact {
             if let Some(path) = &artifact.path {
                 let absolute_path = std::path::PathBuf::from(&shared_dir)
@@ -804,6 +832,7 @@ pub async fn download_version_and_run(
                     .to_string();
                 if !classpath_elements.contains(&absolute_path) {
                     classpath_elements.push(absolute_path);
+                    seen_identities.insert(identity);
                 }
             }
         }

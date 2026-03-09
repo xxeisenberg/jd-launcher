@@ -190,39 +190,56 @@ pub async fn download_java(version: u8, app: AppHandle) -> Result<String, String
         "x32"
     };
 
-    let url = format!(
-        "https://api.adoptium.net/v3/binary/latest/{}/hotspot/{}/{}/jdk/normal/eclipse",
-        version, os, arch
+    // Use Assets API to get download link and SHA256
+    let api_url = format!(
+        "https://api.adoptium.net/v3/assets/latest/{}/hotspot?architecture={}&image_type=jdk&os={}&vendor=eclipse",
+        version, arch, os
     );
+
+    let client = reqwest::Client::new();
+    let response = client
+        .get(&api_url)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!("Adoptium API error: HTTP {}", response.status()));
+    }
+
+    let releases: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+
+    // assets/latest returns an array
+    let release = releases.get(0).ok_or("No releases found")?;
+
+    let binary = release.get("binary").ok_or("No binary info found")?;
+    let package = binary.get("package").ok_or("No package info found")?;
+    let url = package
+        .get("link")
+        .and_then(|v| v.as_str())
+        .ok_or("No download link")?;
+    let sha256 = package
+        .get("checksum")
+        .and_then(|v| v.as_str())
+        .ok_or("No checksum found")?;
 
     let base_dir = crate::helper::get_app_dir().join("java");
     std::fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
 
     let dest_folder = base_dir.join(format!("jdk-{}", version));
 
-    // Try to find an existing valid bin/java in dest_folder
-    if let Ok(entries) = std::fs::read_dir(&dest_folder) {
-        for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                let check_path =
-                    entry
-                        .path()
-                        .join("bin")
-                        .join(if cfg!(windows) { "java.exe" } else { "java" });
-                if check_path.exists() {
-                    return Ok(check_path.to_string_lossy().to_string());
-                }
-                let check_path_mac = entry
-                    .path()
-                    .join("Contents")
-                    .join("Home")
-                    .join("bin")
-                    .join("java");
-                if check_path_mac.exists() {
-                    return Ok(check_path_mac.to_string_lossy().to_string());
+    // Improved existing Java check
+    if dest_folder.exists() {
+        if let Some(p) = find_java_in_dir(&dest_folder) {
+            // Verify it actually works
+            if let Some(v) = get_java_version(&p.to_string_lossy()) {
+                if v == version {
+                    return Ok(p.to_string_lossy().to_string());
                 }
             }
         }
+        // If it exists but is broken or wrong version, we will re-download
+        let _ = std::fs::remove_dir_all(&dest_folder);
     }
 
     let _ = app.emit(
@@ -230,50 +247,58 @@ pub async fn download_java(version: u8, app: AppHandle) -> Result<String, String
         DownloadProgress {
             completed: 0,
             total: 100,
-            phase: format!("Downloading Java {}", version),
+            phase: "java".to_string(),
         },
     );
 
-    let mut response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
-
-    // Check if the request failed
-    if !response.status().is_success() {
-        return Err(format!(
-            "Failed to download Java. HTTP {}",
-            response.status()
-        ));
-    }
-
+    let mut response = client.get(url).send().await.map_err(|e| e.to_string())?;
     let total_size = response.content_length().unwrap_or(0);
 
     let archive_path = base_dir.join(format!(
-        "jdk-{}/archive{}",
+        "jdk-{}-archive{}",
         version,
         if cfg!(windows) { ".zip" } else { ".tar.gz" }
     ));
-    std::fs::create_dir_all(archive_path.parent().unwrap()).unwrap();
 
-    let mut file = std::fs::File::create(&archive_path).map_err(|e| e.to_string())?;
+    {
+        let mut file = std::fs::File::create(&archive_path).map_err(|e| e.to_string())?;
+        let mut downloaded: u64 = 0;
+        while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+            use std::io::Write;
+            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
 
-    let mut downloaded: u64 = 0;
-    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
-        use std::io::Write;
-        file.write_all(&chunk).map_err(|e| e.to_string())?;
-        downloaded += chunk.len() as u64;
+            let percent = if total_size > 0 {
+                (downloaded * 100 / total_size) as usize
+            } else {
+                0
+            };
+            let _ = app.emit(
+                "java-download-progress",
+                DownloadProgress {
+                    completed: percent,
+                    total: 100,
+                    phase: "java".to_string(),
+                },
+            );
+        }
+    }
 
-        let percent = if total_size > 0 {
-            (downloaded * 100 / total_size) as usize
-        } else {
-            0
-        };
-        let _ = app.emit(
-            "java-download-progress",
-            DownloadProgress {
-                completed: percent,
-                total: 100,
-                phase: format!("Downloading Java {}", version),
-            },
-        );
+    // Verify SHA256
+    let _ = app.emit(
+        "java-download-progress",
+        DownloadProgress {
+            completed: 0,
+            total: 1,
+            phase: "java-verifying".to_string(),
+        },
+    );
+
+    if !crate::helper::verify_file_sha256(&archive_path.to_string_lossy(), sha256)
+        .map_err(|e| e.to_string())?
+    {
+        let _ = std::fs::remove_file(&archive_path);
+        return Err("Java download checksum mismatch".to_string());
     }
 
     let _ = app.emit(
@@ -281,54 +306,41 @@ pub async fn download_java(version: u8, app: AppHandle) -> Result<String, String
         DownloadProgress {
             completed: 0,
             total: 1,
-            phase: format!("Extracting Java {}", version),
+            phase: "java-extracting".to_string(),
         },
     );
+
+    // Extract to temp folder then rename for atomicity
+    let temp_extract_dir = base_dir.join(format!("jdk-{}-tmp", version));
+    if temp_extract_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_extract_dir);
+    }
+    std::fs::create_dir_all(&temp_extract_dir).map_err(|e| e.to_string())?;
 
     if cfg!(windows) {
         let zip_file = std::fs::File::open(&archive_path).map_err(|e| e.to_string())?;
         let mut archive = zip::ZipArchive::new(zip_file).map_err(|e| e.to_string())?;
-        archive.extract(&dest_folder).map_err(|e| e.to_string())?;
+        archive
+            .extract(&temp_extract_dir)
+            .map_err(|e| e.to_string())?;
     } else {
         use flate2::read::GzDecoder;
         use tar::Archive;
         let tar_gz = std::fs::File::open(&archive_path).map_err(|e| e.to_string())?;
         let tar = GzDecoder::new(tar_gz);
         let mut archive = Archive::new(tar);
-        archive.unpack(&dest_folder).map_err(|e| e.to_string())?;
+        archive
+            .unpack(&temp_extract_dir)
+            .map_err(|e| e.to_string())?;
     }
 
     let _ = std::fs::remove_file(&archive_path);
 
-    let mut java_bin_path = None;
-    if let Ok(entries) = std::fs::read_dir(&dest_folder) {
-        for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                let check_path =
-                    entry
-                        .path()
-                        .join("bin")
-                        .join(if cfg!(windows) { "java.exe" } else { "java" });
-                if check_path.exists() {
-                    java_bin_path = Some(check_path);
-                    break;
-                }
+    // Atomic rename
+    std::fs::rename(&temp_extract_dir, &dest_folder).map_err(|e| e.to_string())?;
 
-                let check_path_mac = entry
-                    .path()
-                    .join("Contents")
-                    .join("Home")
-                    .join("bin")
-                    .join("java");
-                if check_path_mac.exists() {
-                    java_bin_path = Some(check_path_mac);
-                    break;
-                }
-            }
-        }
-    }
-
-    let p = java_bin_path.ok_or_else(|| "Extracted Java executable not found".to_string())?;
+    let p = find_java_in_dir(&dest_folder)
+        .ok_or_else(|| "Extracted Java executable not found".to_string())?;
 
     #[cfg(unix)]
     {
@@ -350,6 +362,44 @@ pub async fn download_java(version: u8, app: AppHandle) -> Result<String, String
     );
 
     Ok(p.to_string_lossy().to_string())
+}
+
+fn find_java_in_dir(dir: &std::path::Path) -> Option<std::path::PathBuf> {
+    let java_bin = if cfg!(windows) { "java.exe" } else { "java" };
+
+    // Direct bin/java
+    let direct = dir.join("bin").join(java_bin);
+    if direct.exists() {
+        return Some(direct);
+    }
+
+    // macOS structure
+    let mac = dir.join("Contents").join("Home").join("bin").join("java");
+    if mac.exists() {
+        return Some(mac);
+    }
+
+    // Adoptium often extracts into a subfolder like jdk-21.0.2+13
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                let check = entry.path().join("bin").join(java_bin);
+                if check.exists() {
+                    return Some(check);
+                }
+                let check_mac = entry
+                    .path()
+                    .join("Contents")
+                    .join("Home")
+                    .join("bin")
+                    .join("java");
+                if check_mac.exists() {
+                    return Some(check_mac);
+                }
+            }
+        }
+    }
+    None
 }
 
 #[tauri::command]

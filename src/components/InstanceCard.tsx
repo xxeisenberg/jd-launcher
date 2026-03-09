@@ -73,13 +73,17 @@ export function InstanceCard({
     localJava !== null &&
     localJava < requiredJava;
 
+  const isDinnerbone =
+    profile.name.toLowerCase() === "dinnerbone" ||
+    profile.name.toLowerCase() === "grumm";
+
   return (
     <div
       className={`group relative flex flex-col gap-3 p-4 rounded-lg border bg-card transition-all hover:shadow-md ${
         isLastUsed
           ? "border-primary/30 ring-1 ring-primary/10"
           : "border-border"
-      }`}
+      } ${isDinnerbone ? "rotate-180" : ""}`}
     >
       {isLastUsed && (
         <Badge className="absolute -top-2 right-3 text-[10px] px-2 py-0 h-4">
@@ -89,7 +93,7 @@ export function InstanceCard({
 
       {/* header */}
       <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
+        <div className="shrink-0 w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center">
           <span className="text-base font-bold text-primary">
             {profile.name.charAt(0).toUpperCase()}
           </span>

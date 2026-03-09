@@ -294,7 +294,7 @@ async deleteContent(profileId: string, subfolder: string, fileName: string) : Pr
 export type DeviceCodeInfo = { user_code: string; verification_uri: string; message: string }
 export type InstalledModpackInfo = { project_id: string; version_id: string; version_name: string }
 export type JavaInstall = { path: string; version: number }
-export type LauncherSettings = { theme: string; language: string; accent_color?: string; font_family?: string; ui_style?: string; ui_scale?: number; close_on_launch: boolean; default_resolution_width: number; default_resolution_height: number; fullscreen: boolean; default_jvm_args: string; custom_java_path: string | null; game_root_directory: string; http_proxy: string | null; verbose_logging: boolean; show_snapshots: boolean; show_old_beta: boolean; show_old_alpha: boolean }
+export type LauncherSettings = { theme: string; language: string; online_mode?: boolean; accent_color?: string; font_family?: string; ui_style?: string; ui_scale?: number; close_on_launch: boolean; default_resolution_width: number; default_resolution_height: number; fullscreen: boolean; default_jvm_args: string; custom_java_path: string | null; game_root_directory: string; http_proxy: string | null; verbose_logging: boolean; show_snapshots: boolean; show_old_beta: boolean; show_old_alpha: boolean }
 export type MinecraftAccount = { uuid: string; username: string; access_token: string; refresh_token: string; skin_url: string | null; active: boolean }
 export type ModloaderVersion = { version: string; stable: boolean }
 export type ModpackSearchResult = { project_id: string; slug: string; title: string; description: string; icon_url: string; downloads: number; author: string; categories: string[]; latest_mc_version: string }

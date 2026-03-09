@@ -355,6 +355,35 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
               <p className="text-xs text-muted-foreground pl-6">
                 Restart required.
               </p>
+              <Separator />
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Maintenance
+                </Label>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-fit text-xs"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "This will clear onboarding state and reload the app. Continue?",
+                        )
+                      ) {
+                        localStorage.removeItem("jd-launcher-onboarded");
+                        localStorage.removeItem("jd-launcher-offline-username");
+                        window.location.reload();
+                      }
+                    }}
+                  >
+                    Reset Onboarding
+                  </Button>
+                  <p className="text-xs text-muted-foreground/70">
+                    Run the setup process again.
+                  </p>
+                </div>
+              </div>
             </>
           )}
         </div>

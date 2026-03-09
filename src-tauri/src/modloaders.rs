@@ -782,7 +782,7 @@ pub async fn download_modloader_libraries(
     libs: &[LoaderLibrary],
     shared_dir: &str,
     app: &tauri::AppHandle,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<(String, String)>, String> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use tauri::Emitter;
@@ -794,13 +794,13 @@ pub async fn download_modloader_libraries(
         phase: String,
     }
 
-    let mut paths: Vec<String> = Vec::new();
+    let mut paths: Vec<(String, String)> = Vec::new();
     let mut to_download: Vec<(String, String)> = Vec::new();
 
     for lib in libs {
         let rel_path = maven_to_path(&lib.name);
         let local_path = format!("{}/libraries/{}", shared_dir, rel_path);
-        paths.push(local_path.clone());
+        paths.push((local_path.clone(), lib.name.clone()));
 
         if !std::path::Path::new(&local_path).exists() {
             let url = resolve_library_url(&lib.name, lib.url.as_deref());
@@ -863,7 +863,7 @@ pub async fn download_forge_libraries(
     libs: &[ForgeLibEntry],
     shared_dir: &str,
     app: &tauri::AppHandle,
-) -> Result<Vec<String>, String> {
+) -> Result<Vec<(String, String)>, String> {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use tauri::Emitter;
@@ -875,7 +875,7 @@ pub async fn download_forge_libraries(
         phase: String,
     }
 
-    let mut paths: Vec<String> = Vec::new();
+    let mut paths: Vec<(String, String)> = Vec::new();
     let mut to_download: Vec<(String, String, String)> = Vec::new();
 
     for lib in libs {
@@ -890,7 +890,7 @@ pub async fn download_forge_libraries(
                     .join(rel_path)
                     .to_string_lossy()
                     .to_string();
-                paths.push(local_path.clone());
+                paths.push((local_path.clone(), lib.name.clone()));
 
                 let url = artifact
                     .url
@@ -909,7 +909,7 @@ pub async fn download_forge_libraries(
         } else {
             let rel_path = maven_to_path(&lib.name);
             let local_path = format!("{}/libraries/{}", shared_dir, rel_path);
-            paths.push(local_path.clone());
+            paths.push((local_path.clone(), lib.name.clone()));
 
             if !std::path::Path::new(&local_path).exists() {
                 let url = resolve_library_url(&lib.name, lib.url.as_deref());

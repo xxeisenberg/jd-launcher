@@ -73,14 +73,18 @@ export function InstanceRow({
     localJava !== null &&
     localJava < requiredJava;
 
+  const isDinnerbone =
+    profile.name.toLowerCase() === "dinnerbone" ||
+    profile.name.toLowerCase() === "grumm";
+
   return (
     <div
       className={`group flex items-center gap-4 px-4 py-3 rounded-lg border transition-colors hover:bg-accent/50 ${
         isLastUsed ? "border-primary/30 bg-primary/5" : "border-transparent"
-      }`}
+      } ${isDinnerbone ? "rotate-180" : ""}`}
     >
       {/* icon */}
-      <div className="flex-shrink-0 w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
+      <div className="shrink-0 w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
         <span className="text-sm font-bold text-primary">
           {profile.name.charAt(0).toUpperCase()}
         </span>

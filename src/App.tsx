@@ -66,6 +66,21 @@ import { applyTheme } from "./lib/themes";
 const ONBOARDING_KEY = "jd-launcher-onboarded";
 const OFFLINE_USER_KEY = "jd-launcher-offline-username";
 
+const C418_SONGS = [
+  { name: "cat", url: "https://minecraft.wiki/images/Cat.ogg" },
+  { name: "13", url: "https://minecraft.wiki/images/13.ogg" },
+  { name: "blocks", url: "https://minecraft.wiki/images/Blocks.ogg" },
+  { name: "chirp", url: "https://minecraft.wiki/images/Chirp.ogg" },
+  { name: "far", url: "https://minecraft.wiki/images/Far.ogg" },
+  { name: "mall", url: "https://minecraft.wiki/images/Mall.ogg" },
+  { name: "mellohi", url: "https://minecraft.wiki/images/Mellohi.ogg" },
+  { name: "stal", url: "https://minecraft.wiki/images/Stal.ogg" },
+  { name: "strad", url: "https://minecraft.wiki/images/Strad.ogg" },
+  { name: "ward", url: "https://minecraft.wiki/images/Ward.ogg" },
+  { name: "11", url: "https://minecraft.wiki/images/11.ogg" },
+  { name: "wait", url: "https://minecraft.wiki/images/Wait.ogg" },
+];
+
 interface DownloadProgress {
   completed: number;
   total: number;
@@ -109,6 +124,31 @@ function App() {
   >("mod");
   const [deviceCodeInfo, setDeviceCodeInfo] = useState<any | null>(null);
 
+  const [logoClicks, setLogoClicks] = useState(0);
+  const [showJukebox, setShowJukebox] = useState(false);
+  const [playingSong, setPlayingSong] = useState(C418_SONGS[0]);
+
+  useEffect(() => {
+    if (logoClicks > 0 && logoClicks < 10) {
+      const timer = setTimeout(() => setLogoClicks(0), 1000);
+      return () => clearTimeout(timer);
+    } else if (logoClicks === 10) {
+      const randomSong =
+        C418_SONGS[Math.floor(Math.random() * C418_SONGS.length)];
+      setPlayingSong(randomSong);
+      setShowJukebox(true);
+      setLogoClicks(0);
+      try {
+        const audio = new Audio(randomSong.url);
+        audio.volume = 0.5;
+        audio.play().catch((e) => console.error("Playing audio failed", e));
+      } catch (e) {
+        // ignore
+      }
+      setTimeout(() => setShowJukebox(false), 8000);
+    }
+  }, [logoClicks]);
+
   // queries
   const { data: profiles = [] } = useQuery({
     queryKey: ["profiles"],
@@ -150,24 +190,50 @@ function App() {
         localStorage.setItem(OFFLINE_USER_KEY, offlineUser);
         setUsername(offlineUser);
       }
+
+      // Persist auth mode to backend
+      if (settings) {
+        await commands.updateSettings({
+          ...settings,
+          online_mode: mode === "online",
+        });
+        qc.invalidateQueries({ queryKey: ["settings"] });
+      }
+
       setOnboarded(true);
       qc.invalidateQueries({ queryKey: ["authMode"] });
       qc.invalidateQueries({ queryKey: ["activeAccount"] });
     },
-    [qc],
+    [qc, settings],
   );
 
   useEffect(() => {
-    const unlisten = listen<DownloadProgress>("download-progress", (event) => {
-      if (event.payload.phase === "done") {
-        setProgress(null);
-        setLaunching(null);
-      } else {
-        setProgress(event.payload);
-      }
-    });
+    const unlistenDownload = listen<DownloadProgress>(
+      "download-progress",
+      (event) => {
+        if (event.payload.phase === "done") {
+          setProgress(null);
+          setLaunching(null);
+        } else {
+          setProgress(event.payload);
+        }
+      },
+    );
+
+    const unlistenJava = listen<DownloadProgress>(
+      "java-download-progress",
+      (event) => {
+        if (event.payload.phase === "done") {
+          setProgress(null);
+        } else {
+          setProgress(event.payload);
+        }
+      },
+    );
+
     return () => {
-      unlisten.then((fn) => fn());
+      unlistenDownload.then((fn) => fn());
+      unlistenJava.then((fn) => fn());
     };
   }, []);
 
@@ -226,10 +292,20 @@ function App() {
       else setDeviceCodeInfo(info);
       const account = await commands.pollMsLogin();
       if (account && "data" in account && account.status === "ok") {
+        if (settings) {
+          await commands.updateSettings({ ...settings, online_mode: true });
+          qc.invalidateQueries({ queryKey: ["settings"] });
+          qc.invalidateQueries({ queryKey: ["authMode"] });
+        }
         qc.invalidateQueries({ queryKey: ["activeAccount"] });
       } else if (account && account.status === "error") {
         setError(account.error as string);
       } else {
+        if (settings) {
+          await commands.updateSettings({ ...settings, online_mode: true });
+          qc.invalidateQueries({ queryKey: ["settings"] });
+          qc.invalidateQueries({ queryKey: ["authMode"] });
+        }
         qc.invalidateQueries({ queryKey: ["activeAccount"] });
       }
     } catch (e: any) {
@@ -243,6 +319,11 @@ function App() {
     if (!activeAccount) return;
     try {
       await commands.logoutAccount(activeAccount.uuid);
+      if (settings) {
+        await commands.updateSettings({ ...settings, online_mode: false });
+        qc.invalidateQueries({ queryKey: ["settings"] });
+        qc.invalidateQueries({ queryKey: ["authMode"] });
+      }
       qc.invalidateQueries({ queryKey: ["activeAccount"] });
     } catch (e) {
       console.error("Logout failed", e);
@@ -291,20 +372,26 @@ function App() {
 
   const phaseLabel = (phase: string) => {
     switch (phase) {
-      case "client":
-        return "Downloading client…";
-      case "libraries":
-        return "Downloading libraries…";
+      case "java":
+        return "Downloading Java Environment...";
+      case "java-verifying":
+        return "Verifying Java Environment...";
+      case "java-extracting":
+        return "Extracting Java Environment...";
       case "assets":
-        return "Downloading assets…";
+        return "Downloading Assets...";
+      case "libraries":
+        return "Downloading Libraries...";
+      case "client":
+        return "Downloading Minecraft Client...";
       case "modloader":
-        return "Downloading modloader…";
+        return "Downloading Modloader...";
       case "verifying-libraries":
         return "Verifying libraries…";
       case "verifying-assets":
         return "Verifying assets…";
       default:
-        return "Preparing…";
+        return "Downloading...";
     }
   };
 
@@ -329,7 +416,8 @@ function App() {
               <SidebarMenuButton
                 size="lg"
                 tooltip="JD Launcher"
-                className="cursor-default"
+                className="cursor-pointer"
+                onClick={() => setLogoClicks((c) => c + 1)}
               >
                 <div className="flex aspect-square size-8 items-center justify-center">
                   <img
@@ -486,9 +574,20 @@ function App() {
                       maxLength={16}
                       className="bg-transparent text-sm font-medium border-none outline-none placeholder:text-muted-foreground w-full"
                     />
-                    <span className="text-xs text-muted-foreground">
-                      Offline
-                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        Offline
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleLogin();
+                        }}
+                        className="text-[10px] font-bold uppercase tracking-wider text-primary hover:text-primary/80 transition-colors"
+                      >
+                        Sign In
+                      </button>
+                    </div>
                   </div>
                 </SidebarMenuButton>
               )}
@@ -677,9 +776,11 @@ function App() {
           {/* settings view */}
           {currentView === "settings" && (
             <SettingsPage
-              onSettingsSaved={() =>
-                qc.invalidateQueries({ queryKey: ["settings"] })
-              }
+              onSettingsSaved={() => {
+                qc.invalidateQueries({ queryKey: ["settings"] });
+                qc.invalidateQueries({ queryKey: ["authMode"] });
+                qc.invalidateQueries({ queryKey: ["activeAccount"] });
+              }}
             />
           )}
 
@@ -718,7 +819,7 @@ function App() {
 
         {/* progress overlay */}
         {(isDownloading || launching) && (
-          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center">
+          <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center">
             <div className="bg-card border border-border rounded-xl p-8 flex flex-col items-center gap-4 min-w-[300px] shadow-xl">
               <div className="spinner w-8! h-8!" />
               {isDownloading && progress ? (
@@ -757,7 +858,7 @@ function App() {
 
       {deleteConfirm && (
         <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center"
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"
           onClick={() => {
             setDeleteConfirm(null);
             setDeleteFolder(false);
@@ -838,6 +939,22 @@ function App() {
             >
               Cancel
             </Button>
+          </div>
+        </div>
+      )}
+
+      {showJukebox && (
+        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-right-8 fade-in duration-500 flex items-center gap-4 bg-zinc-950/90 backdrop-blur-md border border-zinc-800 p-4 rounded-xl shadow-2xl">
+          <div className="w-14 h-14 bg-[#5E3F32] rounded border-2 border-[#38261E] flex flex-col items-center justify-center shadow-inner relative overflow-hidden">
+            <div className="w-10 h-1.5 bg-black/80 rounded-full mb-1 border-b border-white/10" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold text-emerald-500 mb-0.5 uppercase tracking-widest">
+              Now Playing
+            </p>
+            <p className="text-sm font-medium text-white">
+              C418 - {playingSong.name}
+            </p>
           </div>
         </div>
       )}
