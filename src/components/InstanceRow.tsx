@@ -17,6 +17,7 @@ import {
   TrashIcon,
   MoreHorizontalIcon,
   ImageIcon,
+  StarIcon,
 } from "lucide-react";
 
 const MODLOADER_COLORS: Record<string, string> = {
@@ -36,6 +37,8 @@ interface InstanceRowProps {
   onDelete: (profile: Profile) => void;
   onExport: (profile: Profile) => void;
   onView: (profile: Profile) => void;
+  onFavorite?: (profile: Profile) => void;
+  onDragStart?: (e: React.DragEvent, id: string) => void;
 }
 
 export function InstanceRow({
@@ -47,6 +50,8 @@ export function InstanceRow({
   onDelete,
   onExport,
   onView,
+  onFavorite,
+  onDragStart,
 }: InstanceRowProps) {
   const modLabel =
     profile.modloader === "none"
@@ -82,7 +87,28 @@ export function InstanceRow({
       className={`group flex items-center gap-4 px-4 py-3 rounded-lg border transition-colors hover:bg-accent/50 ${
         isLastUsed ? "border-primary/30 bg-primary/5" : "border-transparent"
       } ${isDinnerbone ? "rotate-180" : ""}`}
+      draggable={!!onDragStart}
+      onDragStart={(e) => {
+        if (onDragStart) {
+          e.currentTarget.style.transition = 'none';
+          e.currentTarget.style.opacity = '0.4';
+          onDragStart(e, profile.id);
+        }
+      }}
+      onDragEnd={(e) => {
+        e.currentTarget.style.transition = '';
+        e.currentTarget.style.opacity = '1';
+      }}
     >
+      {/* star */}
+      {onFavorite && (
+        <button
+          className="shrink-0 p-0.5 rounded hover:bg-accent transition-colors"
+          onClick={(e) => { e.stopPropagation(); onFavorite(profile); }}
+        >
+          <StarIcon className={`w-4 h-4 ${profile.favorite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/40 hover:text-yellow-400"}`} />
+        </button>
+      )}
       {/* icon */}
       <div className="shrink-0 w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
         <span className="text-sm font-bold text-primary">

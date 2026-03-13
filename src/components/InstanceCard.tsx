@@ -17,6 +17,7 @@ import {
   TrashIcon,
   MoreHorizontalIcon,
   ImageIcon,
+  StarIcon,
 } from "lucide-react";
 
 const MODLOADER_COLORS: Record<string, string> = {
@@ -27,7 +28,7 @@ const MODLOADER_COLORS: Record<string, string> = {
   none: "text-muted-foreground bg-muted border-border",
 };
 
-interface InstanceCardProps {
+export interface InstanceCardProps {
   profile: Profile;
   isLastUsed: boolean;
   onLaunch: (profile: Profile) => void;
@@ -36,6 +37,8 @@ interface InstanceCardProps {
   onDelete: (profile: Profile) => void;
   onExport: (profile: Profile) => void;
   onView: (profile: Profile) => void;
+  onFavorite?: (profile: Profile) => void;
+  onDragStart?: (e: React.DragEvent, id: string) => void;
 }
 
 export function InstanceCard({
@@ -47,6 +50,8 @@ export function InstanceCard({
   onDelete,
   onExport,
   onView,
+  onFavorite,
+  onDragStart,
 }: InstanceCardProps) {
   const modLabel =
     profile.modloader === "none"
@@ -84,9 +89,30 @@ export function InstanceCard({
           ? "border-primary/30 ring-1 ring-primary/10"
           : "border-border"
       } ${isDinnerbone ? "rotate-180" : ""}`}
+      draggable={!!onDragStart}
+      onDragStart={(e) => {
+        if (onDragStart) {
+          e.currentTarget.style.transition = 'none';
+          e.currentTarget.style.opacity = '0.4';
+          onDragStart(e, profile.id);
+        }
+      }}
+      onDragEnd={(e) => {
+        e.currentTarget.style.transition = '';
+        e.currentTarget.style.opacity = '1';
+      }}
     >
+      {/* star + badge */}
+      {onFavorite && (
+        <button
+          className="absolute top-2 right-2 p-1 rounded-md hover:bg-accent transition-colors z-10"
+          onClick={(e) => { e.stopPropagation(); onFavorite(profile); }}
+        >
+          <StarIcon className={`w-4 h-4 ${profile.favorite ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30 hover:text-yellow-400"}`} />
+        </button>
+      )}
       {isLastUsed && (
-        <Badge className="absolute -top-2 right-3 text-[10px] px-2 py-0 h-4">
+        <Badge className={`absolute -top-2 ${onFavorite ? "right-10" : "right-3"} text-[10px] px-2 py-0 h-4`}>
           Last Played
         </Badge>
       )}

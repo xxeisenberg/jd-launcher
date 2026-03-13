@@ -90,6 +90,14 @@ async exportProfile(id: string, destPath: string) : Promise<Result<null, string>
     else return { status: "error", error: e  as any };
 }
 },
+async exportGroup(groupName: string, destDir: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_group", { groupName, destDir }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async importProfile(zipPath: string) : Promise<Result<Profile, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("import_profile", { zipPath }) };
@@ -98,7 +106,7 @@ async importProfile(zipPath: string) : Promise<Result<Profile, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async listMods(profileId: string) : Promise<Result<string[], string>> {
+async listMods(profileId: string) : Promise<Result<InstalledMod[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_mods", { profileId }) };
 } catch (e) {
@@ -106,7 +114,7 @@ async listMods(profileId: string) : Promise<Result<string[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async listShaders(profileId: string) : Promise<Result<string[], string>> {
+async listShaders(profileId: string) : Promise<Result<InstalledContentPack[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_shaders", { profileId }) };
 } catch (e) {
@@ -114,9 +122,25 @@ async listShaders(profileId: string) : Promise<Result<string[], string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async listResourcePacks(profileId: string) : Promise<Result<string[], string>> {
+async listResourcePacks(profileId: string) : Promise<Result<InstalledContentPack[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_resource_packs", { profileId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listWorlds(profileId: string) : Promise<Result<LocalWorld[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_worlds", { profileId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async listScreenshots(profileId: string) : Promise<Result<LocalScreenshot[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_screenshots", { profileId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -255,9 +279,9 @@ async searchModrinth(query: string, projectType: string, gameVersion: string, mo
     else return { status: "error", error: e  as any };
 }
 },
-async installModrinthContent(projectId: string, versionId: string, gameDir: string, subfolder: string) : Promise<Result<null, string>> {
+async installModrinthContent(projectId: string, versionId: string, gameDir: string, subfolder: string, projectTitle: string, projectAuthor: string, projectIconUrl: string, projectDescription: string) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("install_modrinth_content", { projectId, versionId, gameDir, subfolder }) };
+    return { status: "ok", data: await TAURI_INVOKE("install_modrinth_content", { projectId, versionId, gameDir, subfolder, projectTitle, projectAuthor, projectIconUrl, projectDescription }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -278,6 +302,38 @@ async deleteContent(profileId: string, subfolder: string, fileName: string) : Pr
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async deleteGroup(groupName: string, deleteFolders: boolean) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_group", { groupName, deleteFolders }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async openContentFolder(profileId: string, subfolder: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_content_folder", { profileId, subfolder }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async openContentEntry(profileId: string, subfolder: string, fileName: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("open_content_entry", { profileId, subfolder, fileName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async revealContentEntry(profileId: string, subfolder: string, fileName: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("reveal_content_entry", { profileId, subfolder, fileName }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -292,9 +348,14 @@ async deleteContent(profileId: string, subfolder: string, fileName: string) : Pr
 /** user-defined types **/
 
 export type DeviceCodeInfo = { user_code: string; verification_uri: string; message: string }
+export type Group = { id: string; name: string; color: string; icon: string }
+export type InstalledContentPack = { file_name: string; display_name: string; description: string | null; author: string | null; version: string | null; icon_data_url: string | null; icon_url: string | null; enabled: boolean }
+export type InstalledMod = { file_name: string; display_name: string; version: string | null; author: string | null; icon_data_url: string | null; enabled: boolean }
 export type InstalledModpackInfo = { project_id: string; version_id: string; version_name: string }
 export type JavaInstall = { path: string; version: number }
-export type LauncherSettings = { theme: string; language: string; online_mode?: boolean; accent_color?: string; font_family?: string; ui_style?: string; ui_scale?: number; close_on_launch: boolean; default_resolution_width: number; default_resolution_height: number; fullscreen: boolean; default_jvm_args: string; custom_java_path: string | null; game_root_directory: string; http_proxy: string | null; verbose_logging: boolean; show_snapshots: boolean; show_old_beta: boolean; show_old_alpha: boolean }
+export type LauncherSettings = { theme: string; language: string; online_mode?: boolean; accent_color?: string; font_family?: string; ui_style?: string; ui_scale?: number; close_on_launch: boolean; default_resolution_width: number; default_resolution_height: number; fullscreen: boolean; default_jvm_args: string; custom_java_path: string | null; game_root_directory: string; http_proxy: string | null; verbose_logging: boolean; show_snapshots: boolean; show_old_beta: boolean; show_old_alpha: boolean; groups?: Group[] }
+export type LocalScreenshot = { file_name: string; path: string; modified_ms: number; size_bytes: number }
+export type LocalWorld = { folder_name: string; path: string; modified_ms: number; size_bytes: number; icon_path: string | null }
 export type MinecraftAccount = { uuid: string; username: string; access_token: string; refresh_token: string; skin_url: string | null; active: boolean }
 export type ModloaderVersion = { version: string; stable: boolean }
 export type ModpackSearchResult = { project_id: string; slug: string; title: string; description: string; icon_url: string; downloads: number; author: string; categories: string[]; latest_mc_version: string }
@@ -307,7 +368,7 @@ version_url: string;
 /**
  * "none" | "fabric" | "forge" | "neoforge"
  */
-modloader: string; modloader_version: string | null; game_dir: string; java_path: string | null; jvm_args: string; resolution: Resolution; modpack_info?: InstalledModpackInfo | null }
+modloader: string; modloader_version: string | null; game_dir: string; java_path: string | null; jvm_args: string; resolution: Resolution; group?: string | null; favorite?: boolean; modpack_info?: InstalledModpackInfo | null }
 export type Resolution = { width: number; height: number }
 export type Version = { id: string; type: string; url: string; time: string; releaseTime: string; sha1: string; complianceLevel: number }
 

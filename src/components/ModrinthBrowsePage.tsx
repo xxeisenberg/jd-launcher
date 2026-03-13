@@ -1,7 +1,12 @@
 import { useState, useRef, useCallback } from "react";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { commands } from "../bindings";
-import type { ModpackSearchResult, ModpackVersion } from "../bindings";
+import type {
+  InstalledContentPack,
+  InstalledMod,
+  ModpackSearchResult,
+  ModpackVersion,
+} from "../bindings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -86,8 +91,13 @@ export function ModrinthBrowsePage({
     // Basic check: match title/slug in filenames (fuzzy but helps)
     const normalizedTitle = item.title.toLowerCase().replace(/\s+/g, "");
     const normalizedSlug = item.slug.toLowerCase();
-    return localFiles.some((f) => {
-      const low = f.toLowerCase();
+    return localFiles.some((entry) => {
+      const filename =
+        typeof entry === "string"
+          ? entry
+          : (entry as InstalledMod).file_name ||
+            (entry as InstalledContentPack).file_name;
+      const low = filename.toLowerCase();
       return (
         low.includes(normalizedTitle) ||
         low.includes(normalizedSlug) ||
@@ -181,6 +191,10 @@ export function ModrinthBrowsePage({
         ver.version_id,
         gameDir,
         subfolder,
+        item.title,
+        item.author,
+        item.icon_url,
+        item.description,
       );
       if (res.status === "ok") {
         setInstalledVersions((prev) => new Set([...prev, ver.version_id]));

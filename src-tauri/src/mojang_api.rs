@@ -207,7 +207,7 @@ pub async fn download_version_and_run(
         .cloned()
         .ok_or_else(|| format!("Profile '{}' not found", profile_id))?;
 
-    // Persist as last used
+    // Persist as last used + timestamp
     {
         let mut cfg = load_profiles();
         cfg.last_profile_id = Some(profile_id.clone());

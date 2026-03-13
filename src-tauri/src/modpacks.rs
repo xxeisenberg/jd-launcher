@@ -113,7 +113,7 @@ struct DownloadProgress {
 }
 
 const MODRINTH_API: &str = "https://api.modrinth.com/v2";
-const USER_AGENT: &str = "JDLauncher/0.1.0 (github.com/jd-launcher)";
+const USER_AGENT: &str = "xxeisenberg/jd-launcher (jaideep@null.net)";
 
 fn modrinth_client() -> reqwest::Client {
     reqwest::Client::builder()
@@ -421,6 +421,8 @@ pub async fn install_modpack(
             width: settings.default_resolution_width,
             height: settings.default_resolution_height,
         },
+        group: None,
+        favorite: false,
         modpack_info: Some(InstalledModpackInfo {
             project_id,
             version_id: version.id,
@@ -585,6 +587,18 @@ pub async fn search_modrinth(
     Ok(results)
 }
 
+// Sidecar metadata saved alongside downloaded content
+#[derive(Debug, Serialize, Deserialize)]
+struct ContentSidecar {
+    project_id: String,
+    title: String,
+    author: String,
+    icon_url: String,
+    version_name: String,
+    version_number: String,
+    description: String,
+}
+
 // Install a mod/shader/resource pack
 #[tauri::command]
 #[specta::specta]
@@ -593,6 +607,11 @@ pub async fn install_modrinth_content(
     version_id: String,
     game_dir: String,
     subfolder: String,
+    // Metadata from search result
+    project_title: String,
+    project_author: String,
+    project_icon_url: String,
+    project_description: String,
 ) -> Result<(), String> {
     let client = modrinth_client();
 
@@ -631,8 +650,20 @@ pub async fn install_modrinth_content(
 
     std::fs::write(&target_path, &bytes).map_err(|e| format!("Write failed: {}", e))?;
 
-    // suppress unused var warning
-    let _ = project_id;
+    // Save sidecar metadata
+    let sidecar = ContentSidecar {
+        project_id,
+        title: project_title,
+        author: project_author,
+        icon_url: project_icon_url,
+        version_name: version.name,
+        version_number: version.version_number,
+        description: project_description,
+    };
+    let sidecar_path = target_dir.join(format!("{}.modrinth.json", primary_file.filename));
+    if let Ok(json) = serde_json::to_string_pretty(&sidecar) {
+        let _ = std::fs::write(&sidecar_path, json);
+    }
 
     Ok(())
 }

@@ -21,9 +21,11 @@ use crate::modpacks::{
 };
 use crate::mojang_api::{download_version_and_run, get_available_versions, save_log_file};
 use crate::profiles::{
-    delete_content, delete_profile, duplicate_profile, export_profile, get_last_profile_id,
-    get_settings, import_profile, list_mods, list_profiles, list_resource_packs, list_shaders,
-    reset_settings, save_profile, set_last_profile_id, toggle_content, update_settings,
+    delete_content, delete_group, delete_profile, duplicate_profile, export_group, export_profile,
+    get_last_profile_id, get_settings, import_profile, list_mods, list_profiles,
+    list_resource_packs, list_screenshots, list_shaders, list_worlds, open_content_entry,
+    open_content_folder, reset_settings, reveal_content_entry, save_profile, set_last_profile_id,
+    toggle_content, update_settings,
 };
 #[cfg(debug_assertions)]
 use specta_typescript::Typescript;
@@ -62,10 +64,13 @@ pub fn run() {
         update_settings,
         reset_settings,
         export_profile,
+        export_group,
         import_profile,
         list_mods,
         list_shaders,
         list_resource_packs,
+        list_worlds,
+        list_screenshots,
         get_modloader_versions,
         get_auth_mode,
         start_ms_login,
@@ -89,7 +94,11 @@ pub fn run() {
         search_modrinth,
         install_modrinth_content,
         toggle_content,
-        delete_content
+        delete_content,
+        delete_group,
+        open_content_folder,
+        open_content_entry,
+        reveal_content_entry
     ]);
 
     #[cfg(debug_assertions)]
@@ -101,6 +110,7 @@ pub fn run() {
         .expect("Failed to export typescript bindings");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())

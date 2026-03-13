@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { commands } from "./bindings";
-import type { Profile, LauncherSettings } from "./bindings";
+import type { Profile, LauncherSettings, Group } from "./bindings";
 import { listen } from "@tauri-apps/api/event";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -17,11 +17,19 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
   SidebarProvider,
   SidebarInset,
   SidebarRail,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
+
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -43,12 +51,19 @@ import {
   ListIcon,
   LayoutGridIcon,
   ChevronRightIcon,
+  ChevronDownIcon,
   LogOutIcon,
   ChevronsUpDownIcon,
   LogInIcon,
   UserIcon,
   TerminalIcon,
+  StarIcon,
+  MoreVerticalIcon,
+  MoreHorizontalIcon,
+  DownloadIcon,
+  TrashIcon,
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 
 import { InstanceRow } from "./components/InstanceRow";
 import { InstanceCard } from "./components/InstanceCard";
@@ -123,6 +138,23 @@ function App() {
     "mod" | "shader" | "resourcepack"
   >("mod");
   const [deviceCodeInfo, setDeviceCodeInfo] = useState<any | null>(null);
+  const [sidebarGroupFilter, setSidebarGroupFilter] = useState<string | null>(
+    null,
+  );
+  const [sidebarGroupsOpen, setSidebarGroupsOpen] = useState(true);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem("jd-collapsed-groups");
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const [dragProfileId, setDragProfileId] = useState<string | null>(null);
+  const [deleteGroupConfirm, setDeleteGroupConfirm] = useState<string | null>(
+    null,
+  );
+  const [deleteGroupFolders, setDeleteGroupFolders] = useState(false);
 
   const [logoClicks, setLogoClicks] = useState(0);
   const [showJukebox, setShowJukebox] = useState(false);
@@ -132,20 +164,6 @@ function App() {
     if (logoClicks > 0 && logoClicks < 10) {
       const timer = setTimeout(() => setLogoClicks(0), 1000);
       return () => clearTimeout(timer);
-    } else if (logoClicks === 10) {
-      const randomSong =
-        C418_SONGS[Math.floor(Math.random() * C418_SONGS.length)];
-      setPlayingSong(randomSong);
-      setShowJukebox(true);
-      setLogoClicks(0);
-      try {
-        const audio = new Audio(randomSong.url);
-        audio.volume = 0.5;
-        audio.play().catch((e) => console.error("Playing audio failed", e));
-      } catch (e) {
-        // ignore
-      }
-      setTimeout(() => setShowJukebox(false), 8000);
     }
   }, [logoClicks]);
 
@@ -176,12 +194,129 @@ function App() {
     enabled: authMode,
   });
 
-  const isDownloading = progress !== null;
+  const customGroups: Group[] = settings?.groups ?? [];
+
+  // Filter profiles by sidebar selection
+  const filteredProfiles = useMemo(() => {
+    if (!sidebarGroupFilter) return profiles;
+    if (sidebarGroupFilter === "__favorites__")
+      return profiles.filter((p) => p.favorite);
+    return profiles.filter(
+      (p) => (p.group?.trim() || "Ungrouped") === sidebarGroupFilter,
+    );
+  }, [profiles, sidebarGroupFilter]);
+
+  const groupedProfiles = useMemo(() => {
+    return Array.from(
+      filteredProfiles.reduce((groups, profile) => {
+        const id = profile.group?.trim() || "Ungrouped";
+        const current = groups.get(id) ?? [];
+        current.push(profile);
+        groups.set(id, current);
+        return groups;
+      }, new Map<string, Profile[]>()),
+    )
+      .sort(([left], [right]) => {
+        if (left === "Ungrouped") return 1;
+        if (right === "Ungrouped") return -1;
+        const li = customGroups.findIndex(
+          (g) => g.id === left || g.name === left,
+        );
+        const ri = customGroups.findIndex(
+          (g) => g.id === right || g.name === right,
+        );
+        if (li >= 0 && ri >= 0) return li - ri;
+        if (li >= 0) return -1;
+        if (ri >= 0) return 1;
+        return left.localeCompare(right);
+      })
+      .map(([id, items]) => {
+        const custom = customGroups.find((g) => g.id === id || g.name === id);
+        return { id, name: custom ? custom.name : id, items };
+      });
+  }, [filteredProfiles, customGroups]);
+
+  const groupMeta = useCallback(
+    (id: string) => customGroups.find((g) => g.id === id || g.name === id),
+    [customGroups],
+  );
+
+  const toggleGroupCollapse = useCallback((label: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      localStorage.setItem("jd-collapsed-groups", JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, profileId: string) => {
+      setDragProfileId(profileId);
+      if (e.dataTransfer) {
+        e.dataTransfer.setData("text/plain", profileId);
+        e.dataTransfer.effectAllowed = "move";
+      }
+    },
+    [],
+  );
 
   const invalidateProfiles = useCallback(
     () => qc.invalidateQueries({ queryKey: ["profiles"] }),
     [qc],
   );
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent, targetGroup: string) => {
+      e.preventDefault();
+      const profileId = e.dataTransfer.getData("text/plain") || dragProfileId;
+      if (!profileId) return;
+      const profile = profiles.find((p) => p.id === profileId);
+      if (!profile) return;
+
+      let groupValue: string | null = targetGroup;
+      if (targetGroup === "Ungrouped") {
+        groupValue = null;
+      }
+
+      // Don't update if already in the group
+      const currentGroup = profile.group?.trim() || "Ungrouped";
+      if (currentGroup === targetGroup) return;
+
+      await commands.saveProfile({ ...profile, group: groupValue });
+      invalidateProfiles();
+      setDragProfileId(null);
+    },
+    [dragProfileId, profiles, invalidateProfiles],
+  );
+
+  async function handleToggleFavorite(profile: Profile) {
+    await commands.saveProfile({ ...profile, favorite: !profile.favorite });
+    invalidateProfiles();
+  }
+
+  async function handleExportGroup(groupName: string) {
+    const dest = await open({ directory: true, multiple: false });
+    if (!dest || typeof dest !== "string") return;
+    const result = await commands.exportGroup(groupName, dest);
+    if (result.status === "error") setError(`Export failed: ${result.error}`);
+  }
+
+  async function handleDeleteGroup() {
+    if (!deleteGroupConfirm) return;
+    const result = await commands.deleteGroup(
+      deleteGroupConfirm,
+      deleteGroupFolders,
+    );
+    if (result.status === "error") setError(`Delete failed: ${result.error}`);
+    setDeleteGroupConfirm(null);
+    setDeleteGroupFolders(false);
+    invalidateProfiles();
+    qc.invalidateQueries({ queryKey: ["settings"] });
+  }
+
+  const isDownloading = progress !== null;
 
   const handleOnboardingComplete = useCallback(
     async (mode: "online" | "offline", offlineUser?: string) => {
@@ -255,6 +390,28 @@ function App() {
     settings?.ui_style,
     settings?.ui_scale,
   ]);
+
+  useEffect(() => {
+    if (!activeInstance) return;
+
+    const nextProfile = profiles.find(
+      (profile) => profile.id === activeInstance.id,
+    );
+    if (!nextProfile) {
+      setActiveInstance(null);
+      if (
+        currentView === "instance-view" ||
+        currentView === "instance-modrinth"
+      ) {
+        setCurrentView("instances");
+      }
+      return;
+    }
+
+    if (nextProfile !== activeInstance) {
+      setActiveInstance(nextProfile);
+    }
+  }, [activeInstance, currentView, profiles]);
 
   async function handleLaunch(profile: Profile) {
     if (!authMode && !username.trim()) {
@@ -417,7 +574,25 @@ function App() {
                 size="lg"
                 tooltip="JD Launcher"
                 className="cursor-pointer"
-                onClick={() => setLogoClicks((c) => c + 1)}
+                onClick={() => {
+                  const currentClicks = logoClicks + 1;
+                  if (currentClicks === 10) {
+                    const randomSong = C418_SONGS[Math.floor(Math.random() * C418_SONGS.length)];
+                    setPlayingSong(randomSong);
+                    setShowJukebox(true);
+                    setLogoClicks(0);
+                    try {
+                      const audio = new Audio(randomSong.url);
+                      audio.volume = 0.5;
+                      audio.play().catch((e) => console.error("Playing audio failed", e));
+                    } catch (e) {
+                      // ignore
+                    }
+                    setTimeout(() => setShowJukebox(false), 8000);
+                  } else {
+                    setLogoClicks(currentClicks);
+                  }
+                }}
               >
                 <div className="flex aspect-square size-8 items-center justify-center">
                   <img
@@ -442,16 +617,75 @@ function App() {
             <SidebarGroupLabel>Navigate</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    tooltip="Instances"
-                    isActive={currentView === "instances"}
-                    onClick={() => setCurrentView("instances")}
-                  >
-                    <BoxesIcon />
-                    <span>Instances</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <Collapsible
+                  open={sidebarGroupsOpen}
+                  onOpenChange={setSidebarGroupsOpen}
+                >
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      tooltip="Instances"
+                      isActive={
+                        currentView === "instances" && !sidebarGroupFilter
+                      }
+                      onClick={() => {
+                        setSidebarGroupFilter(null);
+                        setCurrentView("instances");
+                      }}
+                    >
+                      <BoxesIcon />
+                      <span>Instances</span>
+                    </SidebarMenuButton>
+                    <CollapsibleTrigger asChild>
+                      <button className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-accent text-muted-foreground group-data-[collapsible=icon]:hidden">
+                        <ChevronRightIcon
+                          className={`w-3.5 h-3.5 transition-transform ${sidebarGroupsOpen ? "rotate-90" : ""}`}
+                        />
+                      </button>
+                    </CollapsibleTrigger>
+                  </SidebarMenuItem>
+
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuButton
+                          size="sm"
+                          isActive={sidebarGroupFilter === "__favorites__"}
+                          onClick={() => {
+                            setSidebarGroupFilter("__favorites__");
+                            setCurrentView("instances");
+                          }}
+                        >
+                          <StarIcon className="w-3.5 h-3.5" />
+                          <span>Favorites</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuSubItem>
+                      {customGroups.map((g) => {
+                        const IconComponent =
+                          (LucideIcons as any)[g.icon] ||
+                          LucideIcons.FolderIcon;
+                        return (
+                          <SidebarMenuSubItem key={g.id}>
+                            <SidebarMenuButton
+                              size="sm"
+                              isActive={sidebarGroupFilter === g.id}
+                              onClick={() => {
+                                setSidebarGroupFilter(g.id);
+                                setCurrentView("instances");
+                              }}
+                            >
+                              <IconComponent
+                                className="w-3.5 h-3.5 shrink-0"
+                                style={{ color: g.color }}
+                              />
+                              <span className="truncate">{g.name}</span>
+                            </SidebarMenuButton>
+                          </SidebarMenuSubItem>
+                        );
+                      })}
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </Collapsible>
+
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     tooltip="Modpacks"
@@ -721,48 +955,251 @@ function App() {
                   </Button>
                 </div>
               ) : instanceLayout === "list" ? (
-                <div className="flex flex-col px-4 py-3 gap-0.5">
-                  {profiles.map((profile) => (
-                    <InstanceRow
-                      key={profile.id}
-                      profile={profile}
-                      isLastUsed={profile.id === lastProfileId}
-                      onLaunch={handleLaunch}
-                      onEdit={(p) => setModal({ kind: "edit", profile: p })}
-                      onDuplicate={handleDuplicate}
-                      onDelete={(p) => {
-                        setDeleteConfirm(p);
-                        setDeleteFolder(false);
-                      }}
-                      onExport={handleExport}
-                      onView={(p) => {
-                        setActiveInstance(p);
-                        setCurrentView("instance-view");
-                      }}
-                    />
-                  ))}
+                <div className="flex flex-col px-4 py-3 gap-4">
+                  {groupedProfiles.map((group) => {
+                    const meta = groupMeta(group.id);
+                    const isCollapsed = collapsedGroups.has(group.id);
+                    return (
+                      <section
+                        key={group.id}
+                        className="rounded-xl border border-border/70 bg-card/30 overflow-hidden"
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                        }}
+                        onDrop={(e) => handleDrop(e, group.id)}
+                      >
+                        <div
+                          className="flex items-center justify-between px-4 py-3 border-b border-border/60 cursor-pointer select-none"
+                          onClick={() => toggleGroupCollapse(group.id)}
+                          style={
+                            meta
+                              ? { borderLeft: `3px solid ${meta.color}` }
+                              : undefined
+                          }
+                        >
+                          <div className="flex items-center gap-2.5">
+                            {isCollapsed ? (
+                              <ChevronRightIcon className="w-4 h-4 text-muted-foreground shrink-0" />
+                            ) : (
+                              <ChevronDownIcon className="w-4 h-4 text-muted-foreground shrink-0" />
+                            )}
+                            {meta &&
+                              (() => {
+                                const IconComponent =
+                                  (LucideIcons as any)[meta.icon] ||
+                                  LucideIcons.FolderIcon;
+                                return (
+                                  <IconComponent
+                                    className="w-[20px] h-[20px] shrink-0"
+                                    style={{ color: meta.color }}
+                                  />
+                                );
+                              })()}
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">
+                                Group
+                              </p>
+                              <h2 className="text-sm font-semibold">
+                                {group.name}
+                              </h2>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-muted-foreground">
+                              {group.items.length} instance
+                              {group.items.length === 1 ? "" : "s"}
+                            </span>
+                            {group.id !== "Ungrouped" && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="p-1 rounded-md hover:bg-accent text-muted-foreground"
+                                  >
+                                    <MoreVerticalIcon className="w-4 h-4" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleExportGroup(group.id);
+                                    }}
+                                  >
+                                    <DownloadIcon className="w-4 h-4 mr-2" />{" "}
+                                    Export Group
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteGroupConfirm(group.id);
+                                    }}
+                                  >
+                                    <TrashIcon className="w-4 h-4 mr-2" />{" "}
+                                    Delete Group
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </div>
+                        </div>
+                        {!isCollapsed && (
+                          <div className="flex flex-col px-2 py-2 gap-0.5">
+                            {group.items.map((profile) => (
+                              <InstanceRow
+                                key={profile.id}
+                                profile={profile}
+                                isLastUsed={profile.id === lastProfileId}
+                                onLaunch={handleLaunch}
+                                onEdit={(p) =>
+                                  setModal({ kind: "edit", profile: p })
+                                }
+                                onDuplicate={handleDuplicate}
+                                onDelete={(p) => {
+                                  setDeleteConfirm(p);
+                                  setDeleteFolder(false);
+                                }}
+                                onExport={handleExport}
+                                onView={(p) => {
+                                  setActiveInstance(p);
+                                  setCurrentView("instance-view");
+                                }}
+                                onFavorite={handleToggleFavorite}
+                                onDragStart={handleDragStart}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
                 </div>
               ) : (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3 p-6">
-                  {profiles.map((profile) => (
-                    <InstanceCard
-                      key={profile.id}
-                      profile={profile}
-                      isLastUsed={profile.id === lastProfileId}
-                      onLaunch={handleLaunch}
-                      onEdit={(p) => setModal({ kind: "edit", profile: p })}
-                      onDuplicate={handleDuplicate}
-                      onDelete={(p) => {
-                        setDeleteConfirm(p);
-                        setDeleteFolder(false);
-                      }}
-                      onExport={handleExport}
-                      onView={(p) => {
-                        setActiveInstance(p);
-                        setCurrentView("instance-view");
-                      }}
-                    />
-                  ))}
+                <div className="p-6 space-y-6">
+                  {groupedProfiles.map((group) => {
+                    const meta = groupMeta(group.id);
+                    const isCollapsed = collapsedGroups.has(group.id);
+                    return (
+                      <section
+                        key={group.id}
+                        className="space-y-3"
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                        }}
+                        onDrop={(e) => handleDrop(e, group.id)}
+                      >
+                        <div
+                          className="flex items-end justify-between gap-3 cursor-pointer select-none"
+                          onClick={() => toggleGroupCollapse(group.id)}
+                          style={
+                            meta
+                              ? {
+                                  borderLeft: `3px solid ${meta.color}`,
+                                  paddingLeft: 12,
+                                }
+                              : undefined
+                          }
+                        >
+                          <div className="flex items-center gap-2.5">
+                            {isCollapsed ? (
+                              <ChevronRightIcon className="w-4 h-4 text-muted-foreground shrink-0" />
+                            ) : (
+                              <ChevronDownIcon className="w-4 h-4 text-muted-foreground shrink-0" />
+                            )}
+                            {meta &&
+                              (() => {
+                                const IconComponent =
+                                  (LucideIcons as any)[meta.icon] ||
+                                  LucideIcons.FolderIcon;
+                                return (
+                                  <IconComponent
+                                    className="w-[18px] h-[18px] shrink-0"
+                                    style={{ color: meta.color }}
+                                  />
+                                );
+                              })()}
+                            <div>
+                              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                                Group
+                              </p>
+                              <h2 className="text-lg font-semibold tracking-tight">
+                                {group.name}
+                              </h2>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 opacity-80 mb-1">
+                            <span className="text-xs text-muted-foreground">
+                              {group.items.length} instance
+                              {group.items.length === 1 ? "" : "s"}
+                            </span>
+                            {group.id !== "Ungrouped" && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="p-1 rounded-md hover:bg-accent text-muted-foreground"
+                                  >
+                                    <MoreHorizontalIcon className="w-4 h-4" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleExportGroup(group.id);
+                                    }}
+                                  >
+                                    <DownloadIcon className="w-4 h-4 mr-2" />{" "}
+                                    Export Group
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    className="text-destructive focus:text-destructive"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeleteGroupConfirm(group.id);
+                                    }}
+                                  >
+                                    <TrashIcon className="w-4 h-4 mr-2" />{" "}
+                                    Delete Group
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </div>
+                        </div>
+                        {!isCollapsed && (
+                          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+                            {group.items.map((profile) => (
+                              <InstanceCard
+                                key={profile.id}
+                                profile={profile}
+                                isLastUsed={profile.id === lastProfileId}
+                                onLaunch={handleLaunch}
+                                onEdit={(p) =>
+                                  setModal({ kind: "edit", profile: p })
+                                }
+                                onDuplicate={handleDuplicate}
+                                onDelete={(p) => {
+                                  setDeleteConfirm(p);
+                                  setDeleteFolder(false);
+                                }}
+                                onExport={handleExport}
+                                onView={(p) => {
+                                  setActiveInstance(p);
+                                  setCurrentView("instance-view");
+                                }}
+                                onFavorite={handleToggleFavorite}
+                                onDragStart={handleDragStart}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -900,6 +1337,54 @@ function App() {
                 onClick={() => handleDelete(deleteConfirm)}
               >
                 Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteGroupConfirm && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center"
+          onClick={() => {
+            setDeleteGroupConfirm(null);
+            setDeleteGroupFolders(false);
+          }}
+        >
+          <div
+            className="bg-card border border-border rounded-xl p-6 w-[360px] space-y-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-base font-semibold">Delete Group?</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Delete the group <strong>"{deleteGroupConfirm}"</strong>? This
+              will delete all instances in the group.
+            </p>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="delete-group-folders"
+                checked={deleteGroupFolders}
+                onCheckedChange={(c) => setDeleteGroupFolders(c === true)}
+              />
+              <label
+                htmlFor="delete-group-folders"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Delete instance folders for all profiles in the group
+              </label>
+            </div>
+            <div className="flex gap-2 justify-end mt-4">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setDeleteGroupConfirm(null);
+                  setDeleteGroupFolders(false);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteGroup}>
+                Delete Group
               </Button>
             </div>
           </div>

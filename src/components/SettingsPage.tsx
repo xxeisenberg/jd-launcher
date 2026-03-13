@@ -16,6 +16,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { ACCENT_COLORS, FONTS, UI_STYLES } from "@/lib/themes";
+import * as LucideIcons from "lucide-react";
 
 interface SettingsPageProps {
   onSettingsSaved: (settings: LauncherSettings) => void;
@@ -28,6 +29,7 @@ type TabKey =
   | "java"
   | "directories"
   | "network"
+  | "groups"
   | "developer";
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -37,7 +39,16 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "java", label: "Java" },
   { key: "directories", label: "Directories" },
   { key: "network", label: "Network" },
+  { key: "groups", label: "Groups" },
   { key: "developer", label: "Developer" },
+];
+
+const GROUP_ICONS = [
+  "Folder", "FolderOpen", "Archive", "Box", "Boxes", "Package",
+  "Star", "Heart", "Bookmark", "Tag", "Flame", "Zap",
+  "Sword", "Shield", "Crosshair", "Compass", "Map", "Globe",
+  "Gem", "Crown", "Ghost", "Skull", "Rocket", "Gamepad2",
+  "Cylinder", "Hexagon", "Triangle", "Circle", "Square", "Cpu"
 ];
 
 export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
@@ -90,6 +101,33 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
     const newSettings = { ...settings, [key]: value };
     setLocalSettings(newSettings);
     setDirty(true);
+  };
+
+  const handleUpdateGroup = (groupId: string, updates: any) => {
+    if (!settings) return;
+    const currentGroups = settings.groups || [];
+    const newGroups = currentGroups.map((g) => (g.id === groupId ? { ...g, ...updates } : g));
+    set("groups", newGroups);
+  };
+
+  const handleDeleteGroupOption = (groupId: string) => {
+    if (!settings) return;
+    const currentGroups = settings.groups || [];
+    set("groups", currentGroups.filter((g) => g.id !== groupId));
+  };
+
+  const handleAddGroup = () => {
+    if (!settings) return;
+    const currentGroups = settings.groups || [];
+    set("groups", [
+      ...currentGroups,
+      {
+        id: crypto.randomUUID(),
+        name: "New Group",
+        color: "#6b7280",
+        icon: "Folder",
+      },
+    ]);
   };
 
   if (!settings) return null;
@@ -385,6 +423,112 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
                 </div>
               </div>
             </>
+          )}
+
+          {activeTab === "groups" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">Custom Groups</h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Create groups to organize your instances.
+                  </p>
+                </div>
+                <Button size="sm" onClick={handleAddGroup}>
+                  <LucideIcons.PlusIcon className="w-4 h-4 mr-2" /> Add Group
+                </Button>
+              </div>
+              <Separator />
+              <div className="space-y-3">
+                {(!settings.groups || settings.groups.length === 0) ? (
+                  <p className="text-xs text-muted-foreground italic text-center py-4">
+                    No custom groups yet.
+                  </p>
+                ) : (
+                  settings.groups.map((group) => {
+                    const IconComponent = (LucideIcons as any)[group.icon] || LucideIcons.FolderIcon;
+                    return (
+                      <div
+                        key={group.id}
+                        className="flex flex-col gap-3 p-3 rounded-lg border bg-card/50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center justify-center w-10 h-10 rounded-md bg-background border border-border shadow-sm shrink-0">
+                            <IconComponent className="w-5 h-5" style={{ color: group.color }} />
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <Label className="text-xs">Group Name</Label>
+                            <Input
+                              value={group.name}
+                              onChange={(e) =>
+                                handleUpdateGroup(group.id, { name: e.target.value })
+                              }
+                              className="h-8"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Color</Label>
+                            <div className="flex items-center gap-2 mt-1">
+                              {Object.values(ACCENT_COLORS).slice(0, 10).map((c, i) => (
+                                <button
+                                  key={i}
+                                  onClick={() => handleUpdateGroup(group.id, { color: c.swatch })}
+                                  className={`w-6 h-6 rounded-full border border-border transition-transform hover:scale-110 ${
+                                    group.color === c.swatch ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : ""
+                                  }`}
+                                  style={{ background: c.swatch }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Icon</Label>
+                            <Select
+                              value={group.icon}
+                              onValueChange={(v) => handleUpdateGroup(group.id, { icon: v })}
+                            >
+                              <SelectTrigger className="w-[120px] h-8">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <div className="grid grid-cols-5 gap-1 p-1">
+                                  {GROUP_ICONS.map((iconName) => {
+                                    const I = (LucideIcons as any)[iconName];
+                                    if (!I) return null;
+                                    return (
+                                      <SelectItem
+                                        key={iconName}
+                                        value={iconName}
+                                        hideIndicator
+                                        className="h-8 w-8 p-0 flex items-center justify-center cursor-pointer data-[state=checked]:bg-primary/20"
+                                      >
+                                        <div className="flex items-center justify-center w-full h-full">
+                                          <I className="w-4 h-4" />
+                                        </div>
+                                      </SelectItem>
+                                    );
+                                  })}
+                                </div>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="pt-5 -mt-1 ml-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-destructive hover:text-destructive shrink-0"
+                              onClick={() => handleDeleteGroupOption(group.id)}
+                            >
+                              <LucideIcons.TrashIcon className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           )}
         </div>
 

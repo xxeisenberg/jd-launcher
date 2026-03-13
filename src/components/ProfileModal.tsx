@@ -24,7 +24,10 @@ import {
   DownloadIcon,
   FolderOpenIcon,
   SearchIcon as FileSearchIcon,
+  TypeIcon,
+  ListIcon,
 } from "lucide-react";
+import * as LucideIcons from "lucide-react";
 
 interface ProfileModalProps {
   initial: Partial<Profile> | null;
@@ -47,11 +50,13 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
   const [downloadingJava, setDownloadingJava] = useState(false);
   const [downloadPhase, setDownloadPhase] = useState("");
   const [systemRamMb, setSystemRamMb] = useState(16384);
+  const [isCustomGroup, setIsCustomGroup] = useState(false);
   const [form, setForm] = useState<Profile>(() => {
     const id = initial?.id ?? generateId();
     return {
       id,
       name: initial?.name ?? "New Profile",
+      group: initial?.group ?? null,
       version: initial?.version ?? "",
       version_url: initial?.version_url ?? "",
       modloader: initial?.modloader ?? "none",
@@ -71,6 +76,18 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
       setSystemRamMb(Math.max(1024, rounded));
     });
   }, []);
+
+  useEffect(() => {
+    if (settings?.groups && form.group) {
+      // If the profile's group doesn't match any custom group ID or Name, it's a custom string
+      const isKnown = settings.groups.some(
+        (g) => g.id === form.group || g.name === form.group
+      );
+      if (!isKnown) {
+        setIsCustomGroup(true);
+      }
+    }
+  }, [settings, form.group]);
 
   const filterAndSortVersions = (
     allVersions: Version[],
@@ -293,6 +310,55 @@ export function ProfileModal({ initial, onSave, onClose }: ProfileModalProps) {
               required
               placeholder="My Fabric 1.21.4"
             />
+          </Field>
+
+          <Field label="Group" hint="Organize similar instances together">
+            <div className="flex gap-2">
+              {isCustomGroup ? (
+                <Input
+                  className="flex-1"
+                  value={form.group ?? ""}
+                  onChange={(e) =>
+                    set("group", e.target.value.trim() ? e.target.value : null)
+                  }
+                  placeholder="Type a custom group name..."
+                />
+              ) : (
+                <Select
+                  value={form.group ?? "none"}
+                  onValueChange={(v) => set("group", v === "none" ? null : v)}
+                >
+                  <SelectTrigger className="flex-1">
+                    <SelectValue placeholder="Select a group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none" className="text-muted-foreground italic">
+                      No Group
+                    </SelectItem>
+                    {settings?.groups?.map((g) => {
+                      const IconComponent = (LucideIcons as any)[g.icon] || LucideIcons.FolderIcon;
+                      return (
+                        <SelectItem key={g.id} value={g.id}>
+                          <div className="flex items-center gap-2">
+                            <IconComponent className="w-4 h-4" style={{ color: g.color }} />
+                            <span>{g.name}</span>
+                          </div>
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setIsCustomGroup(!isCustomGroup)}
+                title={isCustomGroup ? "Select from existing groups" : "Type custom group name"}
+              >
+                {isCustomGroup ? <ListIcon className="w-4 h-4" /> : <TypeIcon className="w-4 h-4" />}
+              </Button>
+            </div>
           </Field>
 
           <Field label="Minecraft Version">
