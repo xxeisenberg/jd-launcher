@@ -18,7 +18,13 @@ struct DownloadProgress {
 }
 
 pub fn get_java_version(binary_path: &str) -> Option<u8> {
-    let output = Command::new(binary_path).arg("-version").output().ok()?;
+    let mut cmd = Command::new(binary_path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.arg("-version").output().ok()?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);

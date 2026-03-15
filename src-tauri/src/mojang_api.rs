@@ -850,6 +850,11 @@ pub async fn download_version_and_run(
 
     // Launch
     let mut mc_process = std::process::Command::new(&java_cmd);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        mc_process.creation_flags(0x08000000);
+    }
     mc_process.current_dir(&game_dir);
 
     // JVM args from profile

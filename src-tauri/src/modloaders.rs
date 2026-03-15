@@ -720,7 +720,14 @@ async fn download_and_process_installer(
 
             eprintln!("Running: {} {} {:?}", proc.jar, main_class, resolved_args);
 
-            let output = std::process::Command::new(java_cmd)
+            let mut java_proc = std::process::Command::new(java_cmd);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                java_proc.creation_flags(0x08000000);
+            }
+
+            let output = java_proc
                 .arg("-cp")
                 .arg(&cp)
                 .arg(&main_class)
