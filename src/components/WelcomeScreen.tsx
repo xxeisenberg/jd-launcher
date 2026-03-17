@@ -4,6 +4,7 @@ import type { DeviceCodeInfo } from "../bindings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserIcon, LogInIcon, WifiOffIcon, ArrowRightIcon } from "lucide-react";
+import { TitleBar } from "./TitleBar";
 
 interface WelcomeScreenProps {
   onComplete: (mode: "online" | "offline", username?: string) => void;
@@ -50,7 +51,11 @@ export function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
   };
 
   return (
-    <div className="h-full w-full flex items-center justify-center bg-background">
+    <div className="h-full w-full flex flex-col bg-background">
+      <div className="flex items-center justify-end h-10 px-2 shrink-0" data-tauri-drag-region>
+        <TitleBar />
+      </div>
+      <div className="flex-1 flex items-center justify-center">
       <div className="w-[400px] flex flex-col items-center gap-6">
         {/* logo */}
         <div className="flex flex-col items-center gap-3">
@@ -194,6 +199,7 @@ export function WelcomeScreen({ onComplete }: WelcomeScreenProps) {
             <p className="text-xs text-muted-foreground">Connecting…</p>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

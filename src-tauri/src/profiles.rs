@@ -158,6 +158,8 @@ pub struct LauncherSettings {
     pub show_old_alpha: bool,
     #[serde(default)]
     pub groups: Vec<Group>,
+    #[serde(default)]
+    pub use_native_titlebar: bool,
 }
 
 fn default_online() -> bool {
@@ -200,6 +202,7 @@ impl Default for LauncherSettings {
             show_old_beta: false,
             show_old_alpha: false,
             groups: Vec::new(),
+            use_native_titlebar: false,
         }
     }
 }

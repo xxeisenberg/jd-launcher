@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { commands } from "../bindings";
 import type { LauncherSettings } from "../bindings";
@@ -14,8 +14,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { ACCENT_COLORS, FONTS, UI_STYLES } from "@/lib/themes";
+import {
+  KEYBIND_ACTIONS,
+  KEYBIND_LABELS,
+  getKeybinds,
+  saveKeybinds,
+  resetKeybinds,
+  formatKeybind,
+  eventToCombo,
+  type KeybindAction,
+} from "@/hooks/useKeybinds";
 import * as LucideIcons from "lucide-react";
 
 interface SettingsPageProps {
@@ -30,6 +41,7 @@ type TabKey =
   | "directories"
   | "network"
   | "groups"
+  | "keybinds"
   | "developer";
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -40,6 +52,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "directories", label: "Directories" },
   { key: "network", label: "Network" },
   { key: "groups", label: "Groups" },
+  { key: "keybinds", label: "Keybinds" },
   { key: "developer", label: "Developer" },
 ];
 
@@ -176,6 +189,14 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
                 checked={settings.close_on_launch}
                 onChange={(v) => set("close_on_launch", v)}
               />
+              <CheckboxField
+                label="Use native title bar"
+                checked={settings.use_native_titlebar ?? false}
+                onChange={(v) => set("use_native_titlebar", v)}
+              />
+              <p className="text-xs text-muted-foreground pl-6">
+                Restart required.
+              </p>
             </>
           )}
 
@@ -197,7 +218,7 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
               </FieldGroup>
               <FieldGroup label="Accent Color">
                 <Select
-                  value={settings.accent_color}
+                  value={settings.accent_color ?? "Jade"}
                   onValueChange={(v) => set("accent_color", v)}
                 >
                   <SelectTrigger className="w-48">
@@ -220,7 +241,7 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
               </FieldGroup>
               <FieldGroup label="Font">
                 <Select
-                  value={settings.font_family}
+                  value={settings.font_family ?? "Outfit"}
                   onValueChange={(v) => set("font_family", v)}
                 >
                   <SelectTrigger className="w-48">
@@ -238,7 +259,7 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
               </FieldGroup>
               <FieldGroup label="Style">
                 <Select
-                  value={settings.ui_style}
+                  value={settings.ui_style ?? "Modern"}
                   onValueChange={(v) => set("ui_style", v)}
                 >
                   <SelectTrigger className="w-48">
@@ -264,11 +285,11 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
                     max="150"
                     step="5"
                     className="flex-1 accent-primary"
-                    value={settings.ui_scale}
+                    value={settings.ui_scale ?? 100}
                     onChange={(e) => set("ui_scale", parseInt(e.target.value))}
                   />
                   <span className="text-sm font-medium w-12 text-right">
-                    {settings.ui_scale}%
+                    {settings.ui_scale ?? 100}%
                   </span>
                 </div>
               </FieldGroup>
@@ -530,6 +551,10 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
               </div>
             </div>
           )}
+
+          {activeTab === "keybinds" && (
+            <KeybindsPanel />
+          )}
         </div>
 
         {/* footer */}
@@ -597,4 +622,124 @@ function CheckboxField({
       </Label>
     </div>
   );
+}
+
+function KeybindsPanel() {
+  const [keybinds, setKeybinds] = useState(getKeybinds);
+  const [recording, setRecording] = useState<KeybindAction | null>(null);
+  const recorderRef = useRef<HTMLButtonElement | null>(null);
+
+  // Listen for keypress while recording
+  useEffect(() => {
+    if (!recording) return;
+    const handler = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const combo = eventToCombo(e);
+      if (!combo) return;
+      const next = { ...keybinds, [recording]: combo };
+      setKeybinds(next);
+      saveKeybinds(next);
+      setRecording(null);
+    };
+    window.addEventListener("keydown", handler, true);
+    return () => window.removeEventListener("keydown", handler, true);
+  }, [recording, keybinds]);
+
+  // Focus the recorder button
+  useEffect(() => {
+    if (recording && recorderRef.current) recorderRef.current.focus();
+  }, [recording]);
+
+  const conflicts = findConflicts(keybinds);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold">Keyboard Shortcuts</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Click a shortcut to rebind it.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            resetKeybinds();
+            setKeybinds(getKeybinds());
+          }}
+        >
+          Reset to Defaults
+        </Button>
+      </div>
+      <Separator />
+      <div className="space-y-1">
+        {KEYBIND_ACTIONS.map((action) => {
+          const isRecording = recording === action;
+          const hasConflict = conflicts.has(action);
+          return (
+            <div
+              key={action}
+              className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-accent/50 transition-colors"
+            >
+              <span className="text-sm">{KEYBIND_LABELS[action]}</span>
+              <div className="flex items-center gap-2">
+                {hasConflict && !isRecording && (
+                  <span className="text-[10px] text-amber-500 font-medium">
+                    Conflict
+                  </span>
+                )}
+                <button
+                  ref={isRecording ? recorderRef : undefined}
+                  onClick={() => setRecording(isRecording ? null : action)}
+                  className="cursor-pointer"
+                >
+                  {isRecording ? (
+                    <Kbd className="min-w-[100px] animate-pulse border-primary bg-primary/10 text-primary">
+                      Press keys…
+                    </Kbd>
+                  ) : (
+                    <KbdGroup
+                      className={cn(
+                        hasConflict && "text-amber-500",
+                      )}
+                    >
+                      {formatKeybind(keybinds[action]).split(" + ").map((key, i) => (
+                        <Kbd
+                          key={i}
+                          className={cn(
+                            hasConflict && "bg-amber-500/10 text-amber-500",
+                          )}
+                        >
+                          {key}
+                        </Kbd>
+                      ))}
+                    </KbdGroup>
+                  )}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function findConflicts(
+  keybinds: Record<KeybindAction, string>,
+): Set<KeybindAction> {
+  const seen = new Map<string, KeybindAction>();
+  const conflicts = new Set<KeybindAction>();
+  for (const action of KEYBIND_ACTIONS) {
+    const combo = keybinds[action];
+    if (seen.has(combo)) {
+      conflicts.add(action);
+      conflicts.add(seen.get(combo)!);
+    } else {
+      seen.set(combo, action);
+    }
+  }
+  return conflicts;
 }

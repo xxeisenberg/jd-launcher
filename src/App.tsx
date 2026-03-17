@@ -74,9 +74,11 @@ import { ModpackBrowser } from "./components/ModpackBrowser";
 import { WelcomeScreen } from "./components/WelcomeScreen";
 import { InstanceViewPage } from "./components/InstanceViewPage";
 import { ModrinthBrowsePage } from "./components/ModrinthBrowsePage";
+import { TitleBar } from "./components/TitleBar";
 
 import "./App.css";
 import { applyTheme } from "./lib/themes";
+import { useKeybindListener, getKeybinds } from "./hooks/useKeybinds";
 
 const ONBOARDING_KEY = "jd-launcher-onboarded";
 const OFFLINE_USER_KEY = "jd-launcher-offline-username";
@@ -155,6 +157,23 @@ function App() {
     null,
   );
   const [deleteGroupFolders, setDeleteGroupFolders] = useState(false);
+
+  // Keybinds
+  const [keybinds, setKeybinds] = useState(getKeybinds);
+  useEffect(() => {
+    const refresh = () => setKeybinds(getKeybinds());
+    window.addEventListener("keybinds-changed", refresh);
+    return () => window.removeEventListener("keybinds-changed", refresh);
+  }, []);
+
+  useKeybindListener(keybinds, {
+    "navigate-instances": () => { setSidebarGroupFilter(null); setCurrentView("instances"); },
+    "navigate-modpacks": () => setCurrentView("modpacks"),
+    "navigate-settings": () => setCurrentView("settings"),
+    "toggle-console": () => setShowConsole((v) => !v),
+    "new-instance": () => setModal({ kind: "new" }),
+    "import-instance": () => handleImport(),
+  });
 
   const [logoClicks, setLogoClicks] = useState(0);
   const [showJukebox, setShowJukebox] = useState(false);
@@ -390,6 +409,14 @@ function App() {
     settings?.ui_style,
     settings?.ui_scale,
   ]);
+
+  // title bar decorations
+  useEffect(() => {
+    if (settings) {
+      const w = getCurrentWindow();
+      w.setDecorations(!!settings.use_native_titlebar);
+    }
+  }, [settings?.use_native_titlebar]);
 
   useEffect(() => {
     if (!activeInstance) return;
@@ -919,6 +946,7 @@ function App() {
               </Button>
             </div>
           )}
+          {!settings?.use_native_titlebar && <TitleBar />}
         </div>
 
         {/* content */}
