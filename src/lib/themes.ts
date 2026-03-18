@@ -251,6 +251,10 @@ export const FONTS: { name: string; value: string; mono?: boolean }[] = [
     mono: true,
   },
   {
+    name: "Rajdhani",
+    value: "'Rajdhani', system-ui, sans-serif",
+  },
+  {
     name: "JetBrains Mono",
     value: "'JetBrains Mono', ui-monospace, monospace",
     mono: true,
