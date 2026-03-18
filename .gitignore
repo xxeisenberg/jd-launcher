@@ -41,3 +41,5 @@ Thumbs.db
 
 # Agent state
 .agents/
+.agent/
+skills-lock.json
