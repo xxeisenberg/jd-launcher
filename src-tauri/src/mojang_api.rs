@@ -184,6 +184,77 @@ struct GameLogEvent {
     line: String,
 }
 
+fn detect_lan_port(line: &str) -> Option<u16> {
+    let markers = [
+        "Local game hosted on port ",
+        "Started serving on ",
+        "Started on port ",
+    ];
+    let port_text = markers
+        .iter()
+        .find_map(|marker| line.find(marker).map(|start| &line[start + marker.len()..]))?;
+    let port = port_text
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>();
+
+    if port.is_empty() {
+        return None;
+    }
+
+    port.parse().ok()
+}
+
+fn handle_game_log_line(
+    app: &AppHandle,
+    src: &str,
+    line: String,
+    game_lan_port: &std::sync::atomic::AtomicU16,
+) {
+    if let Some(port) = detect_lan_port(&line) {
+        game_lan_port.store(port, std::sync::atomic::Ordering::SeqCst);
+        crate::playit_manager::emit_lan_port_opened(app, port);
+        let app_clone = app.clone();
+        tauri::async_runtime::spawn(async move {
+            crate::playit_manager::start_for_lan_port(app_clone, port).await;
+        });
+    }
+
+    let _ = app.emit(
+        "game-log",
+        GameLogEvent {
+            src: src.into(),
+            line,
+        },
+    );
+}
+
+#[cfg(test)]
+mod lan_port_tests {
+    use super::detect_lan_port;
+
+    #[test]
+    fn detects_vanilla_lan_port() {
+        assert_eq!(
+            detect_lan_port("[Server thread/INFO]: Local game hosted on port 54321"),
+            Some(54321)
+        );
+    }
+
+    #[test]
+    fn detects_supported_modded_lan_messages() {
+        assert_eq!(detect_lan_port("Started serving on 25565"), Some(25565));
+        assert_eq!(detect_lan_port("Started on port 40000."), Some(40000));
+    }
+
+    #[test]
+    fn rejects_missing_or_invalid_ports() {
+        assert_eq!(detect_lan_port("Local game hosted on port unknown"), None);
+        assert_eq!(detect_lan_port("Local game hosted on port 70000"), None);
+        assert_eq!(detect_lan_port("unrelated log line"), None);
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub fn save_log_file(path: String, content: String) -> Result<(), String> {
@@ -954,40 +1025,40 @@ pub async fn download_version_and_run(
     match mc_process.spawn() {
         Ok(mut child) => {
             println!("Game launched successfully with PID: {}", child.id());
+            let game_lan_port = std::sync::Arc::new(std::sync::atomic::AtomicU16::new(0));
 
             if let Some(stdout) = child.stdout.take() {
                 let app_clone = app.clone();
+                let game_lan_port = game_lan_port.clone();
                 std::thread::spawn(move || {
                     use std::io::{BufRead, BufReader};
                     let reader = BufReader::new(stdout);
                     for line in reader.lines().map_while(Result::ok) {
-                        let _ = app_clone.emit(
-                            "game-log",
-                            GameLogEvent {
-                                src: "stdout".into(),
-                                line,
-                            },
-                        );
+                        handle_game_log_line(&app_clone, "stdout", line, &game_lan_port);
                     }
                 });
             }
 
             if let Some(stderr) = child.stderr.take() {
                 let app_clone = app.clone();
+                let game_lan_port = game_lan_port.clone();
                 std::thread::spawn(move || {
                     use std::io::{BufRead, BufReader};
                     let reader = BufReader::new(stderr);
                     for line in reader.lines().map_while(Result::ok) {
-                        let _ = app_clone.emit(
-                            "game-log",
-                            GameLogEvent {
-                                src: "stderr".into(),
-                                line,
-                            },
-                        );
+                        handle_game_log_line(&app_clone, "stderr", line, &game_lan_port);
                     }
                 });
             }
+
+            let app_clone = app.clone();
+            std::thread::spawn(move || {
+                let _ = child.wait();
+                let port = game_lan_port.load(std::sync::atomic::Ordering::SeqCst);
+                if port != 0 {
+                    crate::playit_manager::stop_playit_for_port(&app_clone, port);
+                }
+            });
         }
         Err(e) => {
             eprintln!(
