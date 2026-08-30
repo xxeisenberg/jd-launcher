@@ -160,3 +160,33 @@
 [data-tauri-drag-region] button,
 [data-tauri-drag-region] a,
 [data-tauri-drag-region] input { -webkit-app-region: no-drag; }
+
+/* browser-native surfaces */
+::selection {
+  background: color-mix(in oklch, var(--primary) 28%, transparent);
+  color: var(--foreground);
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  caret-color: var(--primary);
+}
+
+/* Touch-capable desktops cannot reveal controls through hover alone. */
+@media (hover: none), (pointer: coarse) {
+  .adaptive-actions {
+    opacity: 1 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

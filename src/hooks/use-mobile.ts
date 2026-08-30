@@ -1,17 +1,20 @@
 import * as React from "react"
 
-const MOBILE_BREAKPOINT = 768
+// In the Tauri shell, this hook represents compact navigation mode rather
+// than a phone. The app cannot be resized below 800px, so the old 768px
+// threshold was unreachable and left the workspace cramped at small windows.
+const COMPACT_NAV_BREAKPOINT = 1024
 
 export function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
 
   React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
+    const query = `(max-width: ${COMPACT_NAV_BREAKPOINT - 1}px)`
+    const mql = window.matchMedia(query)
+    const onChange = () => setIsMobile(mql.matches)
+
     mql.addEventListener("change", onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
+    onChange()
     return () => mql.removeEventListener("change", onChange)
   }, [])
 

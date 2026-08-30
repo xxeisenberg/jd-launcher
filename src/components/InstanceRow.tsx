@@ -151,7 +151,7 @@ export function InstanceRow({
       </div>
 
       {/* actions */}
-      <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="adaptive-actions flex shrink-0 items-center gap-1.5 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
         <Button
           size="sm"
           className="h-7 gap-1.5 px-3"

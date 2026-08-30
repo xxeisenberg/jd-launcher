@@ -23,6 +23,7 @@ import {
   SidebarInset,
   SidebarRail,
   SidebarSeparator,
+  SidebarTrigger,
 } from "@/components/ui/sidebar";
 
 import {
@@ -859,14 +860,16 @@ function App() {
         <SidebarRail />
       </Sidebar>
 
-      <SidebarInset className="flex flex-col overflow-hidden">
+      <SidebarInset className="flex min-w-0 flex-col overflow-hidden">
         {/* breadcrumb bar */}
         <div
-          className="flex items-center gap-2 px-6 h-12 border-b border-border shrink-0"
+          className="flex min-w-0 items-center gap-1.5 px-3 h-12 border-b border-border shrink-0 min-[1024px]:gap-2 min-[1024px]:px-6"
           data-tauri-drag-region
         >
-          <span className="text-xs text-muted-foreground">Home</span>
-          <ChevronRightIcon className="w-3 h-3 text-muted-foreground/50" />
+          <SidebarTrigger className="-ml-1 h-7 w-7 shrink-0 min-[1024px]:hidden" />
+          <div className="h-4 w-px shrink-0 bg-border min-[1024px]:hidden" />
+          <span className="hidden text-xs text-muted-foreground min-[1024px]:inline">Home</span>
+          <ChevronRightIcon className="hidden w-3 h-3 shrink-0 text-muted-foreground/50 min-[1024px]:block" />
           {(currentView === "instance-view" ||
             currentView === "instance-modrinth") &&
           activeInstance ? (
@@ -911,7 +914,7 @@ function App() {
 
           {/* instances toolbar */}
           {currentView === "instances" && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
               <Button
                 variant={instanceLayout === "list" ? "secondary" : "ghost"}
                 size="icon"
@@ -953,7 +956,7 @@ function App() {
         <div className="flex-1 overflow-hidden flex flex-col relative">
           {/* error banner */}
           {error && (
-            <div className="mx-6 mt-3 flex items-center gap-2 px-3 py-2 rounded-md bg-destructive/10 text-destructive text-sm">
+            <div className="mx-3 mt-3 flex items-center gap-2 px-3 py-2 rounded-md bg-destructive/10 text-destructive text-sm min-[1024px]:mx-6">
               ⚠ {error}
               <button
                 onClick={() => setError(null)}
@@ -983,7 +986,7 @@ function App() {
                   </Button>
                 </div>
               ) : instanceLayout === "list" ? (
-                <div className="flex flex-col px-4 py-3 gap-4">
+                <div className="flex flex-col px-3 py-3 gap-4 min-[1024px]:px-4">
                   {groupedProfiles.map((group) => {
                     const meta = groupMeta(group.id);
                     const isCollapsed = collapsedGroups.has(group.id);
@@ -1002,7 +1005,7 @@ function App() {
                           onClick={() => toggleGroupCollapse(group.id)}
                           style={
                             meta
-                              ? { borderLeft: `3px solid ${meta.color}` }
+                              ? { borderLeft: `1px solid ${meta.color}` }
                               : undefined
                           }
                         >
@@ -1105,7 +1108,7 @@ function App() {
                   })}
                 </div>
               ) : (
-                <div className="p-6 space-y-6">
+                <div className="p-4 space-y-5 min-[1024px]:p-6 min-[1024px]:space-y-6">
                   {groupedProfiles.map((group) => {
                     const meta = groupMeta(group.id);
                     const isCollapsed = collapsedGroups.has(group.id);
@@ -1125,7 +1128,7 @@ function App() {
                           style={
                             meta
                               ? {
-                                  borderLeft: `3px solid ${meta.color}`,
+                                  borderLeft: `1px solid ${meta.color}`,
                                   paddingLeft: 12,
                                 }
                               : undefined
@@ -1150,7 +1153,7 @@ function App() {
                                 );
                               })()}
                             <div>
-                              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                              <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
                                 Group
                               </p>
                               <h2 className="text-lg font-semibold tracking-tight">

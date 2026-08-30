@@ -308,21 +308,21 @@ export function InstanceViewPage({
   const memoryMb = getMemoryMb(overviewDraft.jvm_args);
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 bg-background relative overflow-hidden">
-      <div className="h-32 shrink-0 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.22),transparent_45%),linear-gradient(135deg,hsl(var(--primary)/0.12),transparent_65%)] relative">
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+      <div className="relative h-24 shrink-0 bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.22),transparent_45%),linear-gradient(135deg,hsl(var(--primary)/0.12),transparent_65%)] min-[900px]:h-28 min-[1180px]:h-32">
         <div className="absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-background to-transparent" />
       </div>
 
-      <div className="px-8 -mt-12 relative z-10 flex gap-6 pb-6 shrink-0 border-b">
-        <div className="w-24 h-24 rounded-3xl bg-card border-4 border-background flex items-center justify-center shadow-md shadow-primary/10">
+      <div className="relative z-10 -mt-10 flex shrink-0 gap-4 border-b px-4 pb-4 min-[900px]:-mt-11 min-[900px]:gap-5 min-[900px]:px-6 min-[900px]:pb-5 min-[1180px]:-mt-12 min-[1180px]:gap-6 min-[1180px]:px-8 min-[1180px]:pb-6">
+        <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl border-4 border-background bg-card shadow-md shadow-primary/10 min-[1180px]:h-24 min-[1180px]:w-24 min-[1180px]:rounded-3xl">
           <span className="text-4xl font-bold text-primary">
             {profile.name.charAt(0).toUpperCase()}
           </span>
         </div>
-        <div className="flex-1 flex flex-col justify-end pb-1">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-col justify-end pb-1">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-2 min-[1180px]:gap-3">
                 <Button
                   variant="ghost"
                   size="icon"
@@ -331,7 +331,7 @@ export function InstanceViewPage({
                 >
                   <ArrowLeftIcon className="w-4 h-4" />
                 </Button>
-                <h1 className="text-2xl font-bold tracking-tight">
+                <h1 className="min-w-0 truncate text-xl font-bold tracking-tight min-[1180px]:text-2xl">
                   {profile.name}
                 </h1>
                 <button
@@ -385,7 +385,7 @@ export function InstanceViewPage({
                 )}
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex shrink-0 gap-2">
               <Button
                 variant="outline"
                 className="gap-2"
@@ -401,14 +401,14 @@ export function InstanceViewPage({
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden px-8 py-6">
+      <div className="flex-1 overflow-hidden px-4 py-4 min-[900px]:px-6 min-[900px]:py-5 min-[1180px]:px-8 min-[1180px]:py-6">
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
           className="h-full flex flex-col"
         >
-          <div className="flex items-center justify-between gap-3">
-            <TabsList className="w-fit flex-wrap h-auto">
+          <div className="flex min-w-0 items-center gap-3">
+            <TabsList className="min-w-0 flex-1 w-auto justify-start overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <TabsTrigger value="mods" className="gap-2">
                 <FileBoxIcon className="w-4 h-4" /> Mods
                 <Badge
@@ -458,7 +458,7 @@ export function InstanceViewPage({
                 <SettingsIcon className="w-4 h-4" /> Overview
               </TabsTrigger>
             </TabsList>
-            {toolbar}
+            <div className="shrink-0">{toolbar}</div>
           </div>
 
           {actionError && (
@@ -467,13 +467,13 @@ export function InstanceViewPage({
             </div>
           )}
 
-          <div className="flex-1 mt-6 overflow-hidden min-h-0 border rounded-2xl bg-card relative">
+          <div className="relative mt-4 min-h-0 flex-1 overflow-hidden rounded-xl border bg-card min-[1180px]:mt-6 min-[1180px]:rounded-2xl">
             <TabsContent
               value="mods"
               className="absolute inset-0 m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
-                <div className="p-4 sm:p-6 flex flex-col gap-3">
+                <div className="p-4 min-[1180px]:p-6 flex flex-col gap-3">
                   {loading ? (
                     <EmptyState icon={FileBoxIcon} title="Loading mods..." />
                   ) : mods.length === 0 ? (
@@ -510,7 +510,7 @@ export function InstanceViewPage({
               className="absolute inset-0 m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
-                <div className="p-4 sm:p-6 flex flex-col gap-2">
+                <div className="p-4 min-[1180px]:p-6 flex flex-col gap-2">
                   {loading ? (
                     <EmptyState icon={ImageIcon} title="Loading shaders..." />
                   ) : shaders.length === 0 ? (
@@ -550,7 +550,7 @@ export function InstanceViewPage({
               className="absolute inset-0 m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
-                <div className="p-4 sm:p-6 flex flex-col gap-2">
+                <div className="p-4 min-[1180px]:p-6 flex flex-col gap-2">
                   {loading ? (
                     <EmptyState
                       icon={PaletteIcon}
@@ -595,7 +595,7 @@ export function InstanceViewPage({
               className="absolute inset-0 m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
-                <div className="p-4 sm:p-6 flex flex-col gap-3">
+                <div className="p-4 min-[1180px]:p-6 flex flex-col gap-3">
                   {loading ? (
                     <EmptyState
                       icon={FolderOpenIcon}
@@ -637,7 +637,7 @@ export function InstanceViewPage({
               className="absolute inset-0 m-0 p-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
-                <div className="p-4 sm:p-6">
+                <div className="p-4 min-[1180px]:p-6">
                   {loading ? (
                     <EmptyState
                       icon={ImageIcon}
@@ -681,11 +681,11 @@ export function InstanceViewPage({
               className="absolute inset-0 m-0 focus-visible:outline-none data-[state=inactive]:hidden"
             >
               <ScrollArea className="h-full">
-                <div className="p-6 grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
+                <div className="grid gap-4 p-4 min-[1180px]:gap-6 min-[1180px]:p-6 xl:grid-cols-[1.1fr_0.9fr]">
                   <section className="border rounded-2xl p-5 bg-background/60">
                     <div className="flex items-center justify-between gap-4 mb-5">
                       <div>
-                        <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                        <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
                           Launch Profile
                         </p>
                         <h3 className="text-lg font-semibold">Quick Tweaks</h3>
@@ -724,7 +724,7 @@ export function InstanceViewPage({
                           }
                           className="w-full accent-primary"
                         />
-                        <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                        <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
                           <span>512 MB</span>
                           <span>System ceiling {systemMemoryMb} MB</span>
                         </div>
@@ -927,7 +927,7 @@ function ContentPackRow({
                 {pack.file_name}
               </p>
             </div>
-            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="adaptive-actions flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
               <Button
                 variant="ghost"
                 size="icon"
@@ -953,19 +953,19 @@ function ContentPackRow({
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {pack.version && (
-              <Badge variant="secondary" className="font-mono text-[11px]">
+              <Badge variant="secondary" className="font-mono text-xs">
                 v{pack.version}
               </Badge>
             )}
             {pack.author && (
-              <Badge variant="outline" className="text-[11px]">
+              <Badge variant="outline" className="text-xs">
                 {pack.author}
               </Badge>
             )}
             {!pack.enabled && (
               <Badge
                 variant="outline"
-                className="text-[11px] text-muted-foreground"
+                className="text-xs text-muted-foreground"
               >
                 Disabled
               </Badge>
@@ -1023,7 +1023,7 @@ function ModRow({
                 {mod.file_name}
               </p>
             </div>
-            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="adaptive-actions flex shrink-0 items-center gap-2 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
               <Button
                 variant="ghost"
                 size="icon"
@@ -1049,19 +1049,19 @@ function ModRow({
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {mod.version && (
-              <Badge variant="secondary" className="font-mono text-[11px]">
+              <Badge variant="secondary" className="font-mono text-xs">
                 v{mod.version}
               </Badge>
             )}
             {mod.author && (
-              <Badge variant="outline" className="text-[11px]">
+              <Badge variant="outline" className="text-xs">
                 {mod.author}
               </Badge>
             )}
             {!mod.enabled && (
               <Badge
                 variant="outline"
-                className="text-[11px] text-muted-foreground"
+                className="text-xs text-muted-foreground"
               >
                 Disabled
               </Badge>

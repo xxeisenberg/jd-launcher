@@ -137,7 +137,7 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
       {
         id: crypto.randomUUID(),
         name: "New Group",
-        color: "#6b7280",
+        color: ACCENT_COLORS.Blue.swatch,
         icon: "Folder",
       },
     ]);
@@ -146,9 +146,12 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
   if (!settings) return null;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-w-0">
       {/* tabs */}
-      <nav className="w-44 shrink-0 border-r border-border p-3 flex flex-col gap-0.5">
+      <nav
+        aria-label="Settings sections"
+        className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-border p-3 min-[1180px]:w-44"
+      >
         {TABS.map((tab) => (
           <button
             key={tab.key}
@@ -166,8 +169,8 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
       </nav>
 
       {/* content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-4 space-y-5 min-[1180px]:p-6">
           {activeTab === "general" && (
             <>
               <FieldGroup label="Language">
@@ -298,7 +301,7 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
 
           {activeTab === "game" && (
             <>
-              <div className="flex gap-4">
+              <div className="flex flex-wrap gap-4">
                 <FieldGroup label="Default Width">
                   <Input
                     type="number"
@@ -448,7 +451,7 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
 
           {activeTab === "groups" && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold">Custom Groups</h3>
                   <p className="text-xs text-muted-foreground mt-0.5">
@@ -473,11 +476,11 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
                         key={group.id}
                         className="flex flex-col gap-3 p-3 rounded-lg border bg-card/50"
                       >
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center justify-center w-10 h-10 rounded-md bg-background border border-border shadow-sm shrink-0">
-                            <IconComponent className="w-5 h-5" style={{ color: group.color }} />
+                        <div className="flex min-w-0 items-start gap-3">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-background shadow-sm">
+                            <IconComponent className="h-5 w-5" style={{ color: group.color }} />
                           </div>
-                          <div className="flex-1 space-y-1">
+                          <div className="min-w-0 flex-1 space-y-1">
                             <Label className="text-xs">Group Name</Label>
                             <Input
                               value={group.name}
@@ -487,14 +490,29 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
                               className="h-8"
                             />
                           </div>
-                          <div className="space-y-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0 text-destructive hover:text-destructive"
+                            onClick={() => handleDeleteGroupOption(group.id)}
+                            aria-label={`Delete ${group.name} group`}
+                            title="Delete group"
+                          >
+                            <LucideIcons.TrashIcon className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap items-end gap-4 pl-[52px]">
+                          <div className="min-w-[256px] flex-1 space-y-1">
                             <Label className="text-xs">Color</Label>
-                            <div className="flex items-center gap-2 mt-1">
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
                               {Object.values(ACCENT_COLORS).slice(0, 10).map((c, i) => (
                                 <button
                                   key={i}
+                                  type="button"
                                   onClick={() => handleUpdateGroup(group.id, { color: c.swatch })}
-                                  className={`w-6 h-6 rounded-full border border-border transition-transform hover:scale-110 ${
+                                  aria-label={`Use color ${c.swatch}`}
+                                  title={c.swatch}
+                                  className={`h-6 w-6 shrink-0 rounded-full border border-border transition-transform hover:scale-110 ${
                                     group.color === c.swatch ? "ring-2 ring-primary ring-offset-1 ring-offset-background" : ""
                                   }`}
                                   style={{ background: c.swatch }}
@@ -502,13 +520,13 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
                               ))}
                             </div>
                           </div>
-                          <div className="space-y-1">
+                          <div className="w-[120px] shrink-0 space-y-1">
                             <Label className="text-xs">Icon</Label>
                             <Select
                               value={group.icon}
                               onValueChange={(v) => handleUpdateGroup(group.id, { icon: v })}
                             >
-                              <SelectTrigger className="w-[120px] h-8">
+                              <SelectTrigger className="h-8 w-full">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -521,10 +539,10 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
                                         key={iconName}
                                         value={iconName}
                                         hideIndicator
-                                        className="h-8 w-8 p-0 flex items-center justify-center cursor-pointer data-[state=checked]:bg-primary/20"
+                                        className="flex h-8 w-8 cursor-pointer items-center justify-center p-0 data-[state=checked]:bg-primary/20"
                                       >
-                                        <div className="flex items-center justify-center w-full h-full">
-                                          <I className="w-4 h-4" />
+                                        <div className="flex h-full w-full items-center justify-center">
+                                          <I className="h-4 w-4" />
                                         </div>
                                       </SelectItem>
                                     );
@@ -532,16 +550,6 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
                                 </div>
                               </SelectContent>
                             </Select>
-                          </div>
-                          <div className="pt-5 -mt-1 ml-2">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-destructive hover:text-destructive shrink-0"
-                              onClick={() => handleDeleteGroupOption(group.id)}
-                            >
-                              <LucideIcons.TrashIcon className="w-4 h-4" />
-                            </Button>
                           </div>
                         </div>
                       </div>
@@ -558,7 +566,7 @@ export function SettingsPage({ onSettingsSaved }: SettingsPageProps) {
         </div>
 
         {/* footer */}
-        <div className="flex items-center gap-2 px-6 py-3 border-t border-border">
+        <div className="flex items-center gap-2 border-t border-border px-4 py-3 min-[1180px]:px-6">
           <Button
             variant="destructive"
             size="sm"
@@ -655,7 +663,7 @@ function KeybindsPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">Keyboard Shortcuts</h3>
           <p className="text-xs text-muted-foreground mt-0.5">
