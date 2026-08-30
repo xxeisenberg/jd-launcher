@@ -44,3 +44,11 @@ flate2 = "1.0.28"
 dirs = "5.0"
 sysinfo = "0.33"
 tauri-plugin-fs = "2"
+playit-ipc = { git = "https://github.com/playit-cloud/playit-agent.git", rev = "9e7b9a1cb42d057e7993e21ef4fe32348d1e7fcd" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"

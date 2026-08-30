@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::PathBuf;
 
-const CLIENT_ID: &str = "YOUR_AZURE_CLIENT_ID";
+const CLIENT_ID: &str = "e5226706-5096-431d-9516-ae48fe263401";
 const AUTH_SCOPE: &str = "XboxLive.signin offline_access";
 
 fn urlencode(s: &str) -> String {

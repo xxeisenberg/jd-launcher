@@ -4,6 +4,7 @@ mod microsoft_auth;
 mod modloaders;
 mod modpacks;
 mod mojang_api;
+mod playit_manager;
 mod profiles;
 
 use crate::helper::get_system_memory_mb;
@@ -114,6 +115,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
+        .on_window_event(|_, event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                playit_manager::stop_playit();
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
