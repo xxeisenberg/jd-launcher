@@ -1,7 +1,7 @@
 use crate::helper::{download_file_with_retry, verify_file};
 use crate::microsoft_auth;
 use crate::modloaders;
-use crate::profiles::{load_profiles, save_profiles};
+use crate::profiles::{load_profiles, modify_profiles};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
@@ -261,6 +261,32 @@ pub fn save_log_file(path: String, content: String) -> Result<(), String> {
     std::fs::write(&path, content).map_err(|e| e.to_string())
 }
 
+fn emit_progress(app: &AppHandle, completed: usize, total: usize, phase: &str) {
+    let _ = app.emit(
+        "download-progress",
+        DownloadProgress {
+            completed,
+            total,
+            phase: phase.into(),
+        },
+    );
+}
+
+/// Wait for a batch of download tasks and collect every failure.
+async fn collect_download_failures(
+    tasks: Vec<tokio::task::JoinHandle<Result<(), String>>>,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    for task in tasks {
+        match task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => failures.push(e),
+            Err(e) => failures.push(format!("Download task crashed: {}", e)),
+        }
+    }
+    failures
+}
+
 /// Launch Minecraft using a saved profile.
 #[tauri::command]
 #[specta::specta]
@@ -269,6 +295,19 @@ pub async fn download_version_and_run(
     profile_id: String,
     username: Option<String>,
 ) -> Result<(), String> {
+    let result = launch_inner(&app, profile_id, username).await;
+    // Always clear the progress bar, including when the launch failed.
+    emit_progress(&app, 0, 0, "done");
+    result
+}
+
+async fn launch_inner(
+    app: &AppHandle,
+    profile_id: String,
+    username: Option<String>,
+) -> Result<(), String> {
+    let app = app.clone();
+
     // Load profile
     let config = load_profiles();
     let profile = config
@@ -278,17 +317,40 @@ pub async fn download_version_and_run(
         .cloned()
         .ok_or_else(|| format!("Profile '{}' not found", profile_id))?;
 
-    // Persist as last used + timestamp
-    {
-        let mut cfg = load_profiles();
+    // Check the account *before* downloading anything, and refresh its
+    // Minecraft token if it expired (they only last ~24h).
+    let online = microsoft_auth::get_auth_mode();
+    let online_account = if online {
+        Some(microsoft_auth::ensure_valid_active_account().await?)
+    } else {
+        None
+    };
+
+    // Persist as last used
+    if let Err(e) = modify_profiles(|cfg| {
         cfg.last_profile_id = Some(profile_id.clone());
-        let _ = save_profiles(&cfg);
+        Ok(())
+    }) {
+        eprintln!("Could not save last used profile: {}", e);
     }
 
-    let response = reqwest::get(&profile.version_url)
+    let response = reqwest::get(&profile.version_url).await.map_err(|e| {
+        format!(
+            "Could not fetch version info for {}: {}",
+            profile.version, e
+        )
+    })?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "Could not fetch version info for {}: HTTP {}",
+            profile.version,
+            response.status()
+        ));
+    }
+    let blueprint: VersionBlueprint = response
+        .json()
         .await
-        .map_err(|e| e.to_string())?;
-    let blueprint: VersionBlueprint = response.json().await.map_err(|e| e.to_string())?;
+        .map_err(|e| format!("Invalid version info for {}: {}", profile.version, e))?;
 
     let os = match std::env::consts::OS {
         "linux" => "linux",
@@ -324,16 +386,14 @@ pub async fn download_version_and_run(
             },
         );
     }
-    if let Err(e) = download_file_with_retry(
+    download_file_with_retry(
         &blueprint.downloads.client.url,
         &client_path,
         3,
         &blueprint.downloads.client.sha1,
     )
     .await
-    {
-        eprintln!("{:?}", e);
-    };
+    .map_err(|e| format!("Failed to download the Minecraft client: {}", e))?;
     if client_needs_download {
         let _ = app.emit(
             "download-progress",
@@ -496,12 +556,9 @@ pub async fn download_version_and_run(
         let app_clone = app.clone();
 
         let task = tokio::spawn(async move {
-            let _permit = sem_clone.acquire().await.unwrap();
-            if let Err(e) =
-                download_file_with_retry(&task_info.url, &task_info.path, 3, &task_info.sha1).await
-            {
-                eprintln!("Failed to download library: {:?}", e);
-            }
+            let _permit = sem_clone.acquire().await.map_err(|e| e.to_string())?;
+            let result =
+                download_file_with_retry(&task_info.url, &task_info.path, 3, &task_info.sha1).await;
             let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
             let _ = app_clone.emit(
                 "download-progress",
@@ -511,14 +568,14 @@ pub async fn download_version_and_run(
                     phase: "libraries".into(),
                 },
             );
+            result
         });
         lib_download_tasks.push(task);
     }
 
-    for task in lib_download_tasks {
-        if let Err(e) = task.await {
-            eprintln!("A library download task panicked: {:?}", e);
-        }
+    let failures = collect_download_failures(lib_download_tasks).await;
+    if !failures.is_empty() {
+        return Err(crate::modpacks::summarize_failures("library", &failures));
     }
 
     // Assets (shared)
@@ -528,16 +585,14 @@ pub async fn download_version_and_run(
         .join(format!("{}.json", blueprint.asset_index.id))
         .to_string_lossy()
         .to_string();
-    if let Err(e) = download_file_with_retry(
+    download_file_with_retry(
         &blueprint.asset_index.url,
         &asset_index_path,
         3,
         &blueprint.asset_index.sha1,
     )
     .await
-    {
-        eprintln!("Failed to download asset index: {:?}", e);
-    }
+    .map_err(|e| format!("Failed to download the asset index: {}", e))?;
 
     let semaphore = Arc::new(Semaphore::new(50));
     let mut download_tasks = Vec::new();
@@ -617,10 +672,8 @@ pub async fn download_version_and_run(
         let app_clone = app.clone();
 
         let task = tokio::spawn(async move {
-            let _permit = sem_clone.acquire().await.unwrap();
-            if let Err(e) = download_file_with_retry(&asset_url, &asset_path, 3, &full_hash).await {
-                eprintln!("Failed to download {}: {:?}", asset_url, e);
-            }
+            let _permit = sem_clone.acquire().await.map_err(|e| e.to_string())?;
+            let result = download_file_with_retry(&asset_url, &asset_path, 3, &full_hash).await;
             let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
             let _ = app_clone.emit(
                 "download-progress",
@@ -630,13 +683,15 @@ pub async fn download_version_and_run(
                     phase: "assets".into(),
                 },
             );
+            result
         });
 
         download_tasks.push(task);
     }
 
-    for task in download_tasks {
-        let _ = task.await;
+    let failures = collect_download_failures(download_tasks).await;
+    if !failures.is_empty() {
+        return Err(crate::modpacks::summarize_failures("asset", &failures));
     }
 
     // Extracting Natives
@@ -661,7 +716,9 @@ pub async fn download_version_and_run(
                                 .join(path)
                                 .to_string_lossy()
                                 .to_string();
-                            let _ = unzip_jar(&full_path, &natives_path);
+                            unzip_jar(&full_path, &natives_path).map_err(|e| {
+                                format!("Failed to extract natives from {}: {}", full_path, e)
+                            })?;
                         }
                     }
                 }
@@ -940,8 +997,6 @@ pub async fn download_version_and_run(
 
     mc_process.arg(format!("-Djava.library.path={}", natives_path));
 
-    let online = microsoft_auth::get_auth_mode();
-
     if !online {
         // Offline mode
         let dummy = "https://invalid.invalid";
@@ -958,8 +1013,9 @@ pub async fn download_version_and_run(
 
     if online {
         // Online: use real MS account
-        let account =
-            microsoft_auth::get_active_account().ok_or("No Microsoft account logged in")?;
+        let account = online_account
+            .as_ref()
+            .ok_or("No Microsoft account signed in")?;
         mc_process.arg("--username").arg(&account.username);
         mc_process.arg("--version").arg(&blueprint.id);
         mc_process.arg("--gameDir").arg(&game_dir);
@@ -1009,16 +1065,6 @@ pub async fn download_version_and_run(
         mc_process.arg(arg);
     }
 
-    // Done downloading
-    let _ = app.emit(
-        "download-progress",
-        DownloadProgress {
-            completed: 0,
-            total: 0,
-            phase: "done".into(),
-        },
-    );
-
     mc_process.stdout(std::process::Stdio::piped());
     mc_process.stderr(std::process::Stdio::piped());
 
@@ -1061,10 +1107,10 @@ pub async fn download_version_and_run(
             });
         }
         Err(e) => {
-            eprintln!(
-                "CRITICAL FAILURE: Could not start Java. Is it installed? Error: {}",
-                e
-            );
+            return Err(format!(
+                "Could not start Java ({}): {}. Check the Java path in the instance settings.",
+                java_cmd, e
+            ));
         }
     }
 

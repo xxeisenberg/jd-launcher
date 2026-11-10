@@ -163,25 +163,74 @@ fn accounts_path() -> PathBuf {
     base.join("accounts.json")
 }
 
-fn load_accounts() -> AccountsStore {
-    let path = accounts_path();
-    if !path.exists() {
-        return AccountsStore::default();
-    }
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => return AccountsStore::default(),
-    };
-    serde_json::from_str(&raw).unwrap_or_default()
+/// Serializes read-modify-write of accounts.json (see profiles::CONFIG_LOCK).
+static ACCOUNTS_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Prevents two token refreshes racing each other (each would consume the
+/// same single-use refresh token).
+static REFRESH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn accounts_guard() -> std::sync::MutexGuard<'static, ()> {
+    ACCOUNTS_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn save_accounts(store: &AccountsStore) -> Result<(), String> {
+fn try_load_accounts() -> Result<AccountsStore, String> {
     let path = accounts_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    if !path.exists() {
+        return Ok(AccountsStore::default());
     }
-    let json = serde_json::to_string_pretty(store).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Could not read {}: {}", path.display(), e))?;
+    match serde_json::from_str(&raw) {
+        Ok(store) => Ok(store),
+        Err(parse_err) => {
+            let backup = path.with_file_name("accounts.corrupt.json");
+            std::fs::copy(&path, &backup).map_err(|e| {
+                format!(
+                    "accounts.json is unreadable ({}) and could not be backed up: {}",
+                    parse_err, e
+                )
+            })?;
+            eprintln!(
+                "accounts.json could not be parsed ({}); backed up to {}",
+                parse_err,
+                backup.display()
+            );
+            Ok(AccountsStore::default())
+        }
+    }
+}
+
+fn load_accounts() -> AccountsStore {
+    let _guard = accounts_guard();
+    try_load_accounts().unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        AccountsStore::default()
+    })
+}
+
+fn modify_accounts<R>(
+    f: impl FnOnce(&mut AccountsStore) -> Result<R, String>,
+) -> Result<R, String> {
+    let _guard = accounts_guard();
+    let mut store = try_load_accounts()?;
+    let result = f(&mut store)?;
+    let json = serde_json::to_string_pretty(&store).map_err(|e| e.to_string())?;
+    crate::helper::atomic_write(&accounts_path(), json.as_bytes())?;
+    Ok(result)
+}
+
+/// Turn an XSTS error code into something a player can act on.
+fn xsts_error_message(xerr: u64) -> String {
+    match xerr {
+        2148916233 => "This Microsoft account has no Xbox profile. Sign in once at xbox.com to create one, then try again.".into(),
+        2148916235 => "Xbox Live is not available in your country/region.".into(),
+        2148916236 | 2148916237 => "This account needs adult verification on xbox.com before it can play.".into(),
+        2148916238 => "This is a child account. An adult must add it to a Microsoft family before it can play.".into(),
+        other => format!("Xbox sign-in was rejected (XErr {}).", other),
+    }
 }
 
 // Auth flow helpers
@@ -231,14 +280,23 @@ async fn exchange_for_xsts(xbl_token: &str) -> Result<(String, String), String> 
         token_type: "JWT".to_string(),
     };
 
-    let resp: XblResponse = client
+    let http = client
         .post("https://xsts.auth.xboxlive.com/xsts/authorize")
         .header("Content-Type", "application/json")
         .header("Accept", "application/json")
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("XSTS auth failed: {}", e))?
+        .map_err(|e| format!("XSTS auth failed: {}", e))?;
+    if !http.status().is_success() {
+        let status = http.status();
+        let body: serde_json::Value = http.json().await.unwrap_or_default();
+        return Err(match body.get("XErr").and_then(|v| v.as_u64()) {
+            Some(xerr) => xsts_error_message(xerr),
+            None => format!("XSTS auth failed: HTTP {}", status),
+        });
+    }
+    let resp: XblResponse = http
         .json()
         .await
         .map_err(|e| format!("XSTS parse failed: {}", e))?;
@@ -259,12 +317,16 @@ async fn exchange_for_minecraft(xsts_token: &str, uhs: &str) -> Result<String, S
         identity_token: format!("XBL3.0 x={};{}", uhs, xsts_token),
     };
 
-    let resp: McAuthResponse = client
+    let http = client
         .post("https://api.minecraftservices.com/authentication/login_with_xbox")
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Minecraft auth failed: {}", e))?
+        .map_err(|e| format!("Minecraft auth failed: {}", e))?;
+    if !http.status().is_success() {
+        return Err(format!("Minecraft auth failed: HTTP {}", http.status()));
+    }
+    let resp: McAuthResponse = http
         .json()
         .await
         .map_err(|e| format!("Minecraft auth parse failed: {}", e))?;
@@ -272,17 +334,49 @@ async fn exchange_for_minecraft(xsts_token: &str, uhs: &str) -> Result<String, S
     Ok(resp.access_token)
 }
 
-async fn fetch_mc_profile(mc_token: &str) -> Result<McProfileResponse, String> {
+enum ProfileFetchError {
+    /// The access token was rejected (expired or revoked).
+    Unauthorized,
+    /// Signed in fine, but this account does not own Minecraft.
+    NotOwned,
+    Other(String),
+}
+
+impl From<ProfileFetchError> for String {
+    fn from(e: ProfileFetchError) -> String {
+        match e {
+            ProfileFetchError::Unauthorized => "Minecraft session expired".into(),
+            ProfileFetchError::NotOwned => {
+                "This Microsoft account does not own Minecraft: Java Edition.".into()
+            }
+            ProfileFetchError::Other(msg) => msg,
+        }
+    }
+}
+
+async fn fetch_mc_profile(mc_token: &str) -> Result<McProfileResponse, ProfileFetchError> {
     let client = reqwest::Client::new();
-    let resp: McProfileResponse = client
+    let http = client
         .get("https://api.minecraftservices.com/minecraft/profile")
         .bearer_auth(mc_token)
         .send()
         .await
-        .map_err(|e| format!("MC profile fetch failed: {}", e))?
+        .map_err(|e| ProfileFetchError::Other(format!("MC profile fetch failed: {}", e)))?;
+    match http.status().as_u16() {
+        200..=299 => {}
+        401 => return Err(ProfileFetchError::Unauthorized),
+        404 => return Err(ProfileFetchError::NotOwned),
+        code => {
+            return Err(ProfileFetchError::Other(format!(
+                "MC profile fetch failed: HTTP {}",
+                code
+            )))
+        }
+    }
+    let resp: McProfileResponse = http
         .json()
         .await
-        .map_err(|e| format!("MC profile parse failed: {}", e))?;
+        .map_err(|e| ProfileFetchError::Other(format!("MC profile parse failed: {}", e)))?;
     Ok(resp)
 }
 
@@ -329,13 +423,17 @@ async fn refresh_ms_token(refresh_token: &str) -> Result<MsTokenResponse, String
         urlencode(AUTH_SCOPE)
     );
 
-    let resp: MsTokenResponse = client
+    let resp = client
         .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(body)
         .send()
         .await
-        .map_err(|e| format!("Token refresh failed: {}", e))?
+        .map_err(|e| format!("Token refresh failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err("Your Microsoft sign-in has expired. Please sign in again.".to_string());
+    }
+    let resp: MsTokenResponse = resp
         .json()
         .await
         .map_err(|e| format!("Token refresh parse failed: {}", e))?;
@@ -373,11 +471,12 @@ pub async fn start_ms_login() -> Result<DeviceCodeInfo, String> {
         .map_err(|e| format!("Device code parse failed: {}", e))?;
 
     // Stash device code for polling
-    let mut store = load_accounts();
-    store.device_code = Some(resp.device_code);
-    store.device_code_interval = Some(resp.interval);
-    store.device_code_expires = Some(resp.expires_in);
-    save_accounts(&store)?;
+    modify_accounts(|store| {
+        store.device_code = Some(resp.device_code);
+        store.device_code_interval = Some(resp.interval);
+        store.device_code_expires = Some(resp.expires_in);
+        Ok(())
+    })?;
 
     Ok(DeviceCodeInfo {
         user_code: resp.user_code,
@@ -442,22 +541,23 @@ pub async fn poll_ms_login() -> Result<MinecraftAccount, String> {
         account.refresh_token = token_resp.refresh_token.unwrap_or_default();
 
         // Save account
-        let mut store = load_accounts();
-        store.device_code = None;
-        store.device_code_interval = None;
-        store.device_code_expires = None;
+        modify_accounts(|store| {
+            store.device_code = None;
+            store.device_code_interval = None;
+            store.device_code_expires = None;
 
-        // Deactivate others, add this one
-        for a in &mut store.accounts {
-            a.active = false;
-        }
-        // Replace if same UUID
-        if let Some(pos) = store.accounts.iter().position(|a| a.uuid == account.uuid) {
-            store.accounts[pos] = account.clone();
-        } else {
-            store.accounts.push(account.clone());
-        }
-        save_accounts(&store)?;
+            // Deactivate others, add this one
+            for a in &mut store.accounts {
+                a.active = false;
+            }
+            // Replace if same UUID
+            if let Some(pos) = store.accounts.iter().position(|a| a.uuid == account.uuid) {
+                store.accounts[pos] = account.clone();
+            } else {
+                store.accounts.push(account.clone());
+            }
+            Ok(())
+        })?;
 
         return Ok(account);
     }
@@ -481,33 +581,39 @@ pub fn list_accounts() -> Vec<MinecraftAccount> {
 #[tauri::command]
 #[specta::specta]
 pub fn switch_account(uuid: String) -> Result<(), String> {
-    let mut store = load_accounts();
-    for a in &mut store.accounts {
-        a.active = a.uuid == uuid;
-    }
-    save_accounts(&store)
+    modify_accounts(|store| {
+        for a in &mut store.accounts {
+            a.active = a.uuid == uuid;
+        }
+        Ok(())
+    })
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn logout_account(uuid: String) -> Result<(), String> {
-    let mut store = load_accounts();
-    store.accounts.retain(|a| a.uuid != uuid);
-    save_accounts(&store)
+    modify_accounts(|store| {
+        store.accounts.retain(|a| a.uuid != uuid);
+        Ok(())
+    })
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn refresh_active_account() -> Result<MinecraftAccount, String> {
-    let mut store = load_accounts();
-    let account = store
+    let _refresh = REFRESH_LOCK.lock().await;
+    refresh_active_account_locked().await
+}
+
+async fn refresh_active_account_locked() -> Result<MinecraftAccount, String> {
+    let account = load_accounts()
         .accounts
-        .iter_mut()
+        .into_iter()
         .find(|a| a.active)
         .ok_or("No active account")?;
 
     if account.refresh_token.is_empty() {
-        return Err("No refresh token stored".to_string());
+        return Err("No refresh token stored. Please sign in again.".to_string());
     }
 
     let ms_resp = refresh_ms_token(&account.refresh_token).await?;
@@ -517,11 +623,37 @@ pub async fn refresh_active_account() -> Result<MinecraftAccount, String> {
         .unwrap_or(account.refresh_token.clone());
     refreshed.active = true;
 
-    // Update store
-    if let Some(pos) = store.accounts.iter().position(|a| a.active) {
-        store.accounts[pos] = refreshed.clone();
-    }
-    save_accounts(&store)?;
+    modify_accounts(|store| {
+        match store.accounts.iter().position(|a| a.uuid == account.uuid) {
+            Some(pos) => store.accounts[pos] = refreshed.clone(),
+            None => return Err("Account was signed out during refresh".to_string()),
+        }
+        Ok(())
+    })?;
 
     Ok(refreshed)
+}
+
+/// Return the active account with a working Minecraft access token,
+/// refreshing it through Microsoft if the stored one has expired.
+/// Minecraft tokens only last ~24h, so this must run before every online launch.
+pub async fn ensure_valid_active_account() -> Result<MinecraftAccount, String> {
+    let _refresh = REFRESH_LOCK.lock().await;
+    let account =
+        get_active_account().ok_or("No Microsoft account signed in. Sign in to play online.")?;
+
+    match fetch_mc_profile(&account.access_token).await {
+        Ok(_) => Ok(account),
+        Err(ProfileFetchError::Unauthorized) => refresh_active_account_locked().await,
+        Err(ProfileFetchError::NotOwned) => Err(ProfileFetchError::NotOwned.into()),
+        // Network trouble: launch with the stored token rather than block
+        // the player; single-player works even with an expired session.
+        Err(ProfileFetchError::Other(e)) => {
+            eprintln!(
+                "Could not validate Minecraft session ({}); using stored token",
+                e
+            );
+            Ok(account)
+        }
+    }
 }

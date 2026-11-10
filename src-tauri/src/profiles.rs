@@ -131,6 +131,7 @@ pub struct Group {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(default)]
 pub struct LauncherSettings {
     pub theme: String,
     pub language: String,
@@ -223,25 +224,106 @@ fn profiles_path() -> PathBuf {
     base_dir.join("profiles.json")
 }
 
-pub fn load_profiles() -> ProfilesConfig {
-    let path = profiles_path();
-    if !path.exists() {
-        return ProfilesConfig::default();
-    }
-    let raw = match std::fs::read_to_string(&path) {
-        Ok(s) => s,
-        Err(_) => return ProfilesConfig::default(),
-    };
-    serde_json::from_str(&raw).unwrap_or_default()
+/// Serializes every read-modify-write of profiles.json. Tauri runs commands
+/// concurrently, so without this two commands could each load the file,
+/// change different things, and the second save would erase the first.
+static CONFIG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn config_guard() -> std::sync::MutexGuard<'static, ()> {
+    CONFIG_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-pub fn save_profiles(config: &ProfilesConfig) -> Result<(), String> {
+/// Strict loader. A missing file is a fresh install. A file that cannot be
+/// read is an error, so callers never overwrite data they could not see. A
+/// file that cannot be parsed is copied aside before falling back to
+/// defaults, so the user's data is never silently destroyed.
+fn try_load_profiles() -> Result<ProfilesConfig, String> {
     let path = profiles_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    if !path.exists() {
+        return Ok(ProfilesConfig::default());
     }
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Could not read {}: {}", path.display(), e))?;
+    match serde_json::from_str(&raw) {
+        Ok(config) => Ok(config),
+        Err(parse_err) => {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let backup = path.with_file_name(format!("profiles.corrupt-{}.json", stamp));
+            std::fs::copy(&path, &backup).map_err(|e| {
+                format!(
+                    "profiles.json is unreadable ({}) and could not be backed up: {}",
+                    parse_err, e
+                )
+            })?;
+            eprintln!(
+                "profiles.json could not be parsed ({}); backed up to {} and starting fresh",
+                parse_err,
+                backup.display()
+            );
+            Ok(ProfilesConfig::default())
+        }
+    }
+}
+
+/// Read-only snapshot of the config. Falls back to defaults on error, which
+/// is safe because nothing read through here is written back.
+pub fn load_profiles() -> ProfilesConfig {
+    let _guard = config_guard();
+    try_load_profiles().unwrap_or_else(|e| {
+        eprintln!("{}", e);
+        ProfilesConfig::default()
+    })
+}
+
+fn write_profiles(config: &ProfilesConfig) -> Result<(), String> {
     let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    std::fs::write(&path, json).map_err(|e| e.to_string())
+    crate::helper::atomic_write(&profiles_path(), json.as_bytes())
+}
+
+/// Atomically load, modify and save the config while holding the lock.
+/// The closure's changes are only written if it returns Ok.
+pub fn modify_profiles<R>(
+    f: impl FnOnce(&mut ProfilesConfig) -> Result<R, String>,
+) -> Result<R, String> {
+    let _guard = config_guard();
+    let mut config = try_load_profiles()?;
+    let result = f(&mut config)?;
+    write_profiles(&config)?;
+    Ok(result)
+}
+
+/// Extra instance roots configured by the user (beyond the launcher defaults).
+pub fn configured_instance_roots(settings: &LauncherSettings) -> Vec<PathBuf> {
+    let root = settings.game_root_directory.trim();
+    if root.is_empty() {
+        Vec::new()
+    } else {
+        vec![PathBuf::from(crate::helper::expand_path(root))]
+    }
+}
+
+/// Delete an instance folder, but only if it is safely inside an instances
+/// root. Returns an error (and deletes nothing) for anything else, e.g. a
+/// profile whose game dir was pointed at the home folder or a shared folder.
+pub fn delete_instance_dir(game_dir: &str, settings: &LauncherSettings) -> Result<(), String> {
+    let path = PathBuf::from(crate::helper::expand_path(game_dir));
+    if !path.exists() {
+        return Ok(());
+    }
+    if !crate::helper::is_deletable_instance_dir(&path, &configured_instance_roots(settings)) {
+        return Err(format!(
+            "Refusing to delete '{}' because it is not inside a launcher instances folder. \
+             Delete it manually if you really want it gone.",
+            path.display()
+        ));
+    }
+    std::fs::remove_dir_all(&path)
+        .map_err(|e| format!("Failed to delete '{}': {}", path.display(), e))
 }
 
 #[derive(Default)]
@@ -752,66 +834,65 @@ pub fn save_profile(profile: Profile) -> Result<(), String> {
         (!trimmed.is_empty()).then(|| trimmed.to_string())
     });
 
-    let mut config = load_profiles();
-    if let Some(pos) = config.profiles.iter().position(|p| p.id == profile.id) {
-        config.profiles[pos] = profile;
-    } else {
-        config.profiles.push(profile);
-    }
-    save_profiles(&config)
+    modify_profiles(|config| {
+        if let Some(pos) = config.profiles.iter().position(|p| p.id == profile.id) {
+            config.profiles[pos] = profile;
+        } else {
+            config.profiles.push(profile);
+        }
+        Ok(())
+    })
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn delete_profile(id: String, delete_folder: bool) -> Result<(), String> {
-    let mut config = load_profiles();
-    let profile = config.profiles.iter().find(|p| p.id == id).cloned();
+    modify_profiles(|config| {
+        let profile = config.profiles.iter().find(|p| p.id == id).cloned();
 
-    config.profiles.retain(|p| p.id != id);
-    if config.last_profile_id.as_deref() == Some(&id) {
-        config.last_profile_id = None;
-    }
-
-    if delete_folder {
-        if let Some(p) = profile {
-            let expanded_path = crate::helper::expand_path(&p.game_dir);
-            let path = std::path::PathBuf::from(expanded_path);
-            if path.exists() {
-                let _ = std::fs::remove_dir_all(path);
+        // Delete the folder first: if that is refused or fails, keep the
+        // profile so the user can see what happened and retry.
+        if delete_folder {
+            if let Some(p) = &profile {
+                delete_instance_dir(&p.game_dir, &config.settings)?;
             }
         }
-    }
 
-    save_profiles(&config)
+        config.profiles.retain(|p| p.id != id);
+        if config.last_profile_id.as_deref() == Some(&id) {
+            config.last_profile_id = None;
+        }
+        Ok(())
+    })
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn duplicate_profile(id: String) -> Result<Profile, String> {
-    let mut config = load_profiles();
-    let original = config
-        .profiles
-        .iter()
-        .find(|p| p.id == id)
-        .cloned()
-        .ok_or_else(|| format!("Profile '{}' not found", id))?;
+    modify_profiles(|config| {
+        let original = config
+            .profiles
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+            .ok_or_else(|| format!("Profile '{}' not found", id))?;
 
-    let new_id = Uuid::new_v4().to_string();
-    let base_dir = crate::helper::get_app_dir();
-    let new_game_dir = base_dir
-        .join(format!("instances/{}", new_id))
-        .to_string_lossy()
-        .to_string();
-    let dup = Profile {
-        id: new_id,
-        name: format!("{} (copy)", original.name),
-        game_dir: new_game_dir,
-        ..original
-    };
+        let new_id = Uuid::new_v4().to_string();
+        let base_dir = crate::helper::get_app_dir();
+        let new_game_dir = base_dir
+            .join(format!("instances/{}", new_id))
+            .to_string_lossy()
+            .to_string();
+        let dup = Profile {
+            id: new_id,
+            name: format!("{} (copy)", original.name),
+            game_dir: new_game_dir,
+            ..original
+        };
 
-    config.profiles.push(dup.clone());
-    save_profiles(&config)?;
-    Ok(dup)
+        config.profiles.push(dup.clone());
+        Ok(dup)
+    })
 }
 
 #[tauri::command]
@@ -823,9 +904,10 @@ pub fn get_last_profile_id() -> Option<String> {
 #[tauri::command]
 #[specta::specta]
 pub fn set_last_profile_id(id: String) -> Result<(), String> {
-    let mut config = load_profiles();
-    config.last_profile_id = Some(id);
-    save_profiles(&config)
+    modify_profiles(|config| {
+        config.last_profile_id = Some(id);
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -837,17 +919,19 @@ pub fn get_settings() -> LauncherSettings {
 #[tauri::command]
 #[specta::specta]
 pub fn update_settings(settings: LauncherSettings) -> Result<(), String> {
-    let mut config = load_profiles();
-    config.settings = settings;
-    save_profiles(&config)
+    modify_profiles(|config| {
+        config.settings = settings;
+        Ok(())
+    })
 }
 
 #[tauri::command]
 #[specta::specta]
 pub fn reset_settings() -> Result<(), String> {
-    let mut config = load_profiles();
-    config.settings = LauncherSettings::default();
-    save_profiles(&config)
+    modify_profiles(|config| {
+        config.settings = LauncherSettings::default();
+        Ok(())
+    })
 }
 
 #[tauri::command]
@@ -1124,38 +1208,48 @@ pub fn export_group(group_name: String, dest_dir: String) -> Result<(), String> 
 #[tauri::command]
 #[specta::specta]
 pub fn delete_group(group_name: String, delete_folders: bool) -> Result<(), String> {
-    let mut config = load_profiles();
+    modify_profiles(|config| {
+        let in_group: Vec<Profile> = config
+            .profiles
+            .iter()
+            .filter(|p| p.group.as_deref() == Some(&group_name))
+            .cloned()
+            .collect();
 
-    let ids_to_delete: Vec<String> = config
-        .profiles
-        .iter()
-        .filter(|p| p.group.as_deref() == Some(&group_name))
-        .map(|p| p.id.clone())
-        .collect();
-
-    for id in &ids_to_delete {
-        if delete_folders {
-            if let Some(p) = config.profiles.iter().find(|p| &p.id == id) {
-                let expanded = crate::helper::expand_path(&p.game_dir);
-                let path = std::path::PathBuf::from(expanded);
-                if path.exists() {
-                    let _ = std::fs::remove_dir_all(path);
+        // Only drop profiles whose folder was handled; a refused or failed
+        // folder delete keeps that profile and is reported back.
+        let mut deleted_ids: Vec<String> = Vec::new();
+        let mut failures: Vec<String> = Vec::new();
+        for p in &in_group {
+            if delete_folders {
+                if let Err(e) = delete_instance_dir(&p.game_dir, &config.settings) {
+                    failures.push(format!("{}: {}", p.name, e));
+                    continue;
                 }
             }
+            deleted_ids.push(p.id.clone());
         }
-    }
 
-    config.profiles.retain(|p| !ids_to_delete.contains(&p.id));
-    if let Some(ref last) = config.last_profile_id {
-        if ids_to_delete.contains(last) {
-            config.last_profile_id = None;
+        config.profiles.retain(|p| !deleted_ids.contains(&p.id));
+        if let Some(ref last) = config.last_profile_id {
+            if deleted_ids.contains(last) {
+                config.last_profile_id = None;
+            }
         }
-    }
 
-    // Remove from settings groups
-    config.settings.groups.retain(|g| g.name != group_name);
-
-    save_profiles(&config)
+        if failures.is_empty() {
+            config.settings.groups.retain(|g| g.name != group_name);
+        }
+        // Return Ok so the deletions that did succeed are saved.
+        Ok(failures)
+    })
+    .and_then(|failures| {
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("\n"))
+        }
+    })
 }
 
 fn add_dir_to_zip(
@@ -1216,34 +1310,47 @@ pub fn import_profile(zip_path: String) -> Result<Profile, String> {
 
     // Extract gameDir contents
     let game_dir_path = PathBuf::from(&new_game_dir);
-    for i in 0..archive.len() {
-        let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
-        let name = file.name().to_string();
-        if let Some(rel) = name.strip_prefix("gameDir/") {
-            if rel.is_empty() {
-                continue;
-            }
-            let target = game_dir_path.join(rel);
-            if name.ends_with('/') {
-                std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
-            } else {
-                if let Some(p) = target.parent() {
-                    std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+    let extract = |archive: &mut zip::ZipArchive<std::fs::File>| -> Result<(), String> {
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).map_err(|e| e.to_string())?;
+            let name = file.name().to_string();
+            if let Some(rel) = name.strip_prefix("gameDir/") {
+                if rel.is_empty() {
+                    continue;
                 }
-                let mut f = std::fs::File::create(&target).map_err(|e| e.to_string())?;
-                use std::io::Read;
-                let mut buf = Vec::new();
-                file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
-                use std::io::Write;
-                f.write_all(&buf).map_err(|e| e.to_string())?;
+                // Reject entries like "gameDir/../../.bashrc" (zip slip).
+                if file.enclosed_name().is_none() {
+                    return Err(format!("Refusing unsafe path in archive: {}", name));
+                }
+                let target = crate::helper::safe_join(&game_dir_path, rel)
+                    .ok_or_else(|| format!("Refusing unsafe path in archive: {}", name))?;
+                if name.ends_with('/') {
+                    std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
+                } else {
+                    if let Some(p) = target.parent() {
+                        std::fs::create_dir_all(p).map_err(|e| e.to_string())?;
+                    }
+                    let mut f = std::fs::File::create(&target).map_err(|e| e.to_string())?;
+                    use std::io::Read;
+                    let mut buf = Vec::new();
+                    file.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+                    use std::io::Write;
+                    f.write_all(&buf).map_err(|e| e.to_string())?;
+                }
             }
         }
+        Ok(())
+    };
+    if let Err(e) = extract(&mut archive) {
+        let _ = std::fs::remove_dir_all(&game_dir_path);
+        return Err(e);
     }
 
     // Persist
-    let mut config = load_profiles();
-    config.profiles.push(profile.clone());
-    save_profiles(&config)?;
+    modify_profiles(|config| {
+        config.profiles.push(profile.clone());
+        Ok(())
+    })?;
     Ok(profile)
 }
 

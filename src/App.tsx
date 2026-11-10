@@ -456,6 +456,8 @@ function App() {
     try {
       setShowConsole(true);
       const result = await commands.downloadVersionAndRun(profile.id, nameArg);
+      // The backend may have refreshed the Microsoft session during launch.
+      if (authMode) qc.invalidateQueries({ queryKey: ["activeAccount"] });
       if (result.status === "error") {
         setError(`Launch failed: ${result.error}`);
         setLaunching(null);
@@ -522,7 +524,8 @@ function App() {
   }
 
   async function handleDelete(profile: Profile) {
-    await commands.deleteProfile(profile.id, deleteFolder);
+    const result = await commands.deleteProfile(profile.id, deleteFolder);
+    if (result.status === "error") setError(`Delete failed: ${result.error}`);
     setDeleteConfirm(null);
     setDeleteFolder(false);
     invalidateProfiles();

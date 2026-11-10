@@ -840,10 +840,8 @@ pub async fn download_modloader_libraries(
         let app_clone = app.clone();
 
         let task = tokio::spawn(async move {
-            let _permit = sem.acquire().await.unwrap();
-            if let Err(e) = download_file_with_retry(&url, &path, 3, "").await {
-                eprintln!("Failed to download modloader lib {}: {:?}", url, e);
-            }
+            let _permit = sem.acquire().await.map_err(|e| e.to_string())?;
+            let result = download_file_with_retry(&url, &path, 3, "").await;
             let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
             let _ = app_clone.emit(
                 "download-progress",
@@ -853,14 +851,24 @@ pub async fn download_modloader_libraries(
                     phase: "modloader".into(),
                 },
             );
+            result
         });
         tasks.push(task);
     }
 
+    let mut failures = Vec::new();
     for task in tasks {
-        if let Err(e) = task.await {
-            eprintln!("Modloader lib download task panicked: {:?}", e);
+        match task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => failures.push(e),
+            Err(e) => failures.push(format!("Download task crashed: {}", e)),
         }
+    }
+    if !failures.is_empty() {
+        return Err(crate::modpacks::summarize_failures(
+            "modloader library",
+            &failures,
+        ));
     }
 
     Ok(paths)
@@ -950,10 +958,8 @@ pub async fn download_forge_libraries(
         let app_clone = app.clone();
 
         let task = tokio::spawn(async move {
-            let _permit = sem.acquire().await.unwrap();
-            if let Err(e) = download_file_with_retry(&url, &path, 3, &sha1).await {
-                eprintln!("Failed to download forge lib {}: {:?}", url, e);
-            }
+            let _permit = sem.acquire().await.map_err(|e| e.to_string())?;
+            let result = download_file_with_retry(&url, &path, 3, &sha1).await;
             let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
             let _ = app_clone.emit(
                 "download-progress",
@@ -963,14 +969,24 @@ pub async fn download_forge_libraries(
                     phase: "modloader".into(),
                 },
             );
+            result
         });
         tasks.push(task);
     }
 
+    let mut failures = Vec::new();
     for task in tasks {
-        if let Err(e) = task.await {
-            eprintln!("Forge lib download task panicked: {:?}", e);
+        match task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => failures.push(e),
+            Err(e) => failures.push(format!("Download task crashed: {}", e)),
         }
+    }
+    if !failures.is_empty() {
+        return Err(crate::modpacks::summarize_failures(
+            "modloader library",
+            &failures,
+        ));
     }
 
     Ok(paths)

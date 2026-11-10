@@ -1,4 +1,4 @@
-use crate::profiles::{load_profiles, save_profiles, InstalledModpackInfo, Profile, Resolution};
+use crate::profiles::{load_profiles, modify_profiles, InstalledModpackInfo, Profile, Resolution};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
@@ -95,6 +95,8 @@ struct MrpackFile {
     downloads: Vec<String>,
     #[serde(rename = "fileSize")]
     file_size: Option<u64>,
+    /// e.g. {"client": "required", "server": "unsupported"}
+    env: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -239,27 +241,83 @@ pub async fn get_modpack_versions(project_id: String) -> Result<Vec<ModpackVersi
 }
 
 // Install a modpack
-#[tauri::command]
-#[specta::specta]
-pub async fn install_modpack(
-    app: AppHandle,
-    project_id: String,
-    version_id: String,
-    modpack_name: String,
-) -> Result<Profile, String> {
-    let client = modrinth_client();
 
-    // Fetch version info
-    let ver_resp = client
+/// Name of the file (inside an instance folder) that records which files the
+/// installed modpack version put there, so an update can remove files the
+/// new version dropped without touching anything the user added.
+const MODPACK_MANIFEST: &str = ".jd-modpack-files.json";
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct ModpackManifest {
+    files: Vec<String>,
+}
+
+struct MrpackInstallResult {
+    mc_version: String,
+    version_url: String,
+    modloader: String,
+    modloader_version: Option<String>,
+}
+
+fn emit_progress(app: &AppHandle, completed: usize, total: usize, phase: &str) {
+    let _ = app.emit(
+        "download-progress",
+        DownloadProgress {
+            completed,
+            total,
+            phase: phase.into(),
+        },
+    );
+}
+
+async fn fetch_modrinth_version(
+    client: &reqwest::Client,
+    version_id: &str,
+) -> Result<ModrinthVersion, String> {
+    let resp = client
         .get(format!("{}/version/{}", MODRINTH_API, version_id))
         .send()
         .await
         .map_err(|e| format!("Failed to get version: {}", e))?;
-
-    let version: ModrinthVersion = ver_resp
-        .json::<ModrinthVersion>()
+    if !resp.status().is_success() {
+        return Err(format!("Modrinth API error: {}", resp.status()));
+    }
+    resp.json::<ModrinthVersion>()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())
+}
+
+async fn download_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, String> {
+    let resp = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| format!("Download failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("HTTP {} downloading {}", resp.status(), url));
+    }
+    resp.bytes()
+        .await
+        .map(|b| b.to_vec())
+        .map_err(|e| format!("Failed to read download: {}", e))
+}
+
+fn read_manifest(game_dir: &std::path::Path) -> Option<ModpackManifest> {
+    let raw = std::fs::read_to_string(game_dir.join(MODPACK_MANIFEST)).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Download a Modrinth modpack version and install it into `game_dir`.
+/// Works both for a fresh folder and for updating an existing instance:
+/// pack files are (re)written, overrides are applied, and files that the
+/// previous pack version installed but this one no longer lists are removed.
+/// User files (saves, screenshots, options, extra mods) are left alone.
+async fn install_mrpack_into(
+    app: &AppHandle,
+    client: &reqwest::Client,
+    version: &ModrinthVersion,
+    game_dir: &std::path::Path,
+) -> Result<MrpackInstallResult, String> {
     let primary_file = version
         .files
         .iter()
@@ -267,41 +325,15 @@ pub async fn install_modpack(
         .or(version.files.first())
         .ok_or("No files in version")?;
 
-    // Emit progress
-    let _ = app.emit(
-        "download-progress",
-        DownloadProgress {
-            completed: 0,
-            total: 1,
-            phase: "modpack".into(),
-        },
-    );
-
-    // Download mrpack
-    let mrpack_bytes = client
-        .get(&primary_file.url)
-        .send()
-        .await
-        .map_err(|e| format!("Download failed: {}", e))?
-        .bytes()
-        .await
-        .map_err(|e| format!("Failed to read: {}", e))?;
-
-    let _ = app.emit(
-        "download-progress",
-        DownloadProgress {
-            completed: 1,
-            total: 1,
-            phase: "modpack".into(),
-        },
-    );
+    emit_progress(app, 0, 1, "modpack");
+    let mrpack_bytes = download_bytes(client, &primary_file.url).await?;
+    emit_progress(app, 1, 1, "modpack");
 
     // Parse mrpack ZIP
-    let cursor = std::io::Cursor::new(&mrpack_bytes);
-    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| format!("Invalid mrpack: {}", e))?;
-
-    // Read modrinth.index.json
     let index: MrpackIndex = {
+        let cursor = std::io::Cursor::new(&mrpack_bytes);
+        let mut archive =
+            zip::ZipArchive::new(cursor).map_err(|e| format!("Invalid mrpack: {}", e))?;
         let mut index_file = archive
             .by_name("modrinth.index.json")
             .map_err(|_| "Missing modrinth.index.json")?;
@@ -313,14 +345,12 @@ pub async fn install_modpack(
     };
 
     // Determine MC version and modloader
-    let deps = index.dependencies.unwrap_or_default();
-    let mc_version = deps.get("minecraft").cloned().unwrap_or_else(|| {
-        version
-            .game_versions
-            .first()
-            .cloned()
-            .unwrap_or("1.20.1".into())
-    });
+    let deps = index.dependencies.clone().unwrap_or_default();
+    let mc_version = deps
+        .get("minecraft")
+        .cloned()
+        .or_else(|| version.game_versions.first().cloned())
+        .ok_or("Modpack does not specify a Minecraft version")?;
 
     let (modloader, modloader_version) = if let Some(v) = deps.get("fabric-loader") {
         ("fabric".to_string(), Some(v.clone()))
@@ -334,87 +364,159 @@ pub async fn install_modpack(
         ("none".to_string(), None)
     };
 
-    // Get version URL from manifest
     let version_url = get_mc_version_url(&mc_version).await?;
 
-    // Create profile
-    let config = load_profiles();
-    let settings = config.settings;
-    let profile_id = Uuid::new_v4().to_string();
-    let game_dir =
-        std::path::PathBuf::from(crate::helper::expand_path(&settings.game_root_directory))
-            .join(format!("instances/{}", profile_id))
-            .to_string_lossy()
-            .to_string();
+    std::fs::create_dir_all(game_dir).map_err(|e| format!("Failed to create game dir: {}", e))?;
 
-    std::fs::create_dir_all(&game_dir).map_err(|e| format!("Failed to create game dir: {}", e))?;
+    // Validate every path up front, so a malicious pack writes nothing at all.
+    let mut planned: Vec<(String, std::path::PathBuf, String, String)> = Vec::new();
+    for file in &index.files {
+        let client_unsupported = file
+            .env
+            .as_ref()
+            .and_then(|env| env.get("client"))
+            .is_some_and(|v| v == "unsupported");
+        if client_unsupported {
+            continue;
+        }
+        let url = file
+            .downloads
+            .first()
+            .ok_or_else(|| format!("No download URL for {}", file.path))?
+            .clone();
+        let target = crate::helper::safe_join(game_dir, &file.path)
+            .ok_or_else(|| format!("Modpack contains an unsafe file path: {}", file.path))?;
+        let sha1 = file.hashes.sha1.clone().unwrap_or_default();
+        planned.push((file.path.clone(), target, url, sha1));
+    }
 
-    // Download all files from index
-    let file_count = index.files.len();
+    let file_count = planned.len();
     if file_count > 0 {
-        let _ = app.emit(
-            "download-progress",
-            DownloadProgress {
-                completed: 0,
-                total: file_count,
-                phase: "modpack_files".into(),
-            },
-        );
+        emit_progress(app, 0, file_count, "modpack_files");
     }
 
     let sem = Arc::new(Semaphore::new(20));
     let completed = Arc::new(AtomicUsize::new(0));
     let mut tasks = Vec::new();
 
-    for file in &index.files {
-        if file.downloads.is_empty() {
-            continue;
-        }
-        let url = file.downloads[0].clone();
-        let target = std::path::PathBuf::from(&game_dir)
-            .join(&file.path)
-            .to_string_lossy()
-            .to_string();
-        let sha1 = file.hashes.sha1.clone().unwrap_or_default();
+    for (_, target, url, sha1) in &planned {
+        let url = url.clone();
+        let target = target.to_string_lossy().to_string();
+        let sha1 = sha1.clone();
         let sem_c = Arc::clone(&sem);
         let counter = Arc::clone(&completed);
         let app_c = app.clone();
 
-        let task = tokio::spawn(async move {
-            let _permit = sem_c.acquire().await.unwrap();
-            if let Err(e) = crate::helper::download_file_with_retry(&url, &target, 3, &sha1).await {
-                eprintln!("Failed to download {}: {}", url, e);
-            }
+        tasks.push(tokio::spawn(async move {
+            let _permit = sem_c.acquire().await.map_err(|e| e.to_string())?;
+            let result = crate::helper::download_file_with_retry(&url, &target, 3, &sha1).await;
             let done = counter.fetch_add(1, Ordering::Relaxed) + 1;
-            let _ = app_c.emit(
-                "download-progress",
-                DownloadProgress {
-                    completed: done,
-                    total: file_count,
-                    phase: "modpack_files".into(),
-                },
-            );
-        });
-        tasks.push(task);
+            emit_progress(&app_c, done, file_count, "modpack_files");
+            result
+        }));
     }
 
+    let mut failures = Vec::new();
     for task in tasks {
-        let _ = task.await;
+        match task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => failures.push(e),
+            Err(e) => failures.push(format!("Download task crashed: {}", e)),
+        }
+    }
+    if !failures.is_empty() {
+        return Err(summarize_failures("modpack file", &failures));
     }
 
-    // Extract overrides
-    extract_overrides(&mrpack_bytes, &game_dir, "overrides")?;
-    extract_overrides(&mrpack_bytes, &game_dir, "client-overrides")?;
+    // Overrides
+    extract_overrides(&mrpack_bytes, game_dir, "overrides")?;
+    extract_overrides(&mrpack_bytes, game_dir, "client-overrides")?;
 
-    // Build profile
-    let profile = Profile {
-        id: profile_id,
-        name: modpack_name,
-        version: mc_version,
+    // Remove files the previous pack version installed that this one dropped.
+    let new_files: Vec<String> = planned.into_iter().map(|(path, ..)| path).collect();
+    if let Some(old) = read_manifest(game_dir) {
+        for old_path in old.files.iter().filter(|p| !new_files.contains(p)) {
+            if let Some(path) = crate::helper::safe_join(game_dir, old_path) {
+                if path.is_file() {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+    }
+    let manifest = serde_json::to_string_pretty(&ModpackManifest { files: new_files })
+        .map_err(|e| e.to_string())?;
+    crate::helper::atomic_write(&game_dir.join(MODPACK_MANIFEST), manifest.as_bytes())?;
+
+    Ok(MrpackInstallResult {
+        mc_version,
         version_url,
         modloader,
         modloader_version,
-        game_dir,
+    })
+}
+
+pub fn summarize_failures(what: &str, failures: &[String]) -> String {
+    let shown: Vec<&str> = failures.iter().take(3).map(String::as_str).collect();
+    let more = failures.len().saturating_sub(shown.len());
+    let mut msg = format!(
+        "{} {} download(s) failed. Check your connection and try again.\n{}",
+        failures.len(),
+        what,
+        shown.join("\n")
+    );
+    if more > 0 {
+        msg.push_str(&format!("\n…and {} more", more));
+    }
+    msg
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn install_modpack(
+    app: AppHandle,
+    project_id: String,
+    version_id: String,
+    modpack_name: String,
+) -> Result<Profile, String> {
+    let result = install_modpack_inner(&app, project_id, version_id, modpack_name).await;
+    // Always clear the progress bar, including on failure.
+    emit_progress(&app, 0, 0, "done");
+    result
+}
+
+async fn install_modpack_inner(
+    app: &AppHandle,
+    project_id: String,
+    version_id: String,
+    modpack_name: String,
+) -> Result<Profile, String> {
+    let client = modrinth_client();
+    let version = fetch_modrinth_version(&client, &version_id).await?;
+
+    let settings = load_profiles().settings;
+    let profile_id = Uuid::new_v4().to_string();
+    let game_dir =
+        std::path::PathBuf::from(crate::helper::expand_path(&settings.game_root_directory))
+            .join("instances")
+            .join(&profile_id);
+
+    let installed = match install_mrpack_into(app, &client, &version, &game_dir).await {
+        Ok(installed) => installed,
+        Err(e) => {
+            // Brand-new folder that we created: safe to remove the partial install.
+            let _ = std::fs::remove_dir_all(&game_dir);
+            return Err(e);
+        }
+    };
+
+    let profile = Profile {
+        id: profile_id,
+        name: modpack_name,
+        version: installed.mc_version,
+        version_url: installed.version_url,
+        modloader: installed.modloader,
+        modloader_version: installed.modloader_version,
+        game_dir: game_dir.to_string_lossy().to_string(),
         java_path: settings.custom_java_path.clone(),
         jvm_args: settings.default_jvm_args.clone(),
         resolution: Resolution {
@@ -430,19 +532,10 @@ pub async fn install_modpack(
         }),
     };
 
-    // Save
-    let mut config = load_profiles();
-    config.profiles.push(profile.clone());
-    save_profiles(&config)?;
-
-    let _ = app.emit(
-        "download-progress",
-        DownloadProgress {
-            completed: 0,
-            total: 0,
-            phase: "done".into(),
-        },
-    );
+    modify_profiles(|config| {
+        config.profiles.push(profile.clone());
+        Ok(())
+    })?;
 
     Ok(profile)
 }
@@ -472,21 +565,26 @@ pub async fn check_modpack_update(profile_id: String) -> Result<Option<ModpackVe
     Ok(None)
 }
 
-// Update modpack
+// Update modpack in place. The instance keeps its id, folder, worlds,
+// screenshots, options, group, favorite, Java and memory settings.
 #[tauri::command]
 #[specta::specta]
 pub async fn update_modpack(app: AppHandle, profile_id: String) -> Result<Profile, String> {
-    let config = load_profiles();
-    let profile = config
+    let result = update_modpack_inner(&app, profile_id).await;
+    emit_progress(&app, 0, 0, "done");
+    result
+}
+
+async fn update_modpack_inner(app: &AppHandle, profile_id: String) -> Result<Profile, String> {
+    let profile = load_profiles()
         .profiles
-        .iter()
+        .into_iter()
         .find(|p| p.id == profile_id)
-        .cloned()
         .ok_or("Profile not found")?;
 
     let info = profile
         .modpack_info
-        .as_ref()
+        .clone()
         .ok_or("Not a modpack profile")?;
 
     let versions = get_modpack_versions(info.project_id.clone()).await?;
@@ -496,24 +594,53 @@ pub async fn update_modpack(app: AppHandle, profile_id: String) -> Result<Profil
         return Err("Already up to date".into());
     }
 
-    // Delete old profile, install new
-    let mut config = load_profiles();
-    config.profiles.retain(|p| p.id != profile_id);
-    save_profiles(&config)?;
+    let client = modrinth_client();
+    let version = fetch_modrinth_version(&client, &latest.version_id).await?;
+    let game_dir = std::path::PathBuf::from(crate::helper::expand_path(&profile.game_dir));
 
-    // Clean old game dir
-    let game_path = std::path::PathBuf::from(&profile.game_dir);
-    if game_path.exists() {
-        let _ = std::fs::remove_dir_all(&game_path);
+    // Instances installed before the file manifest existed: we can't tell
+    // pack mods from user mods, so move the old mods folder aside (never
+    // delete it) to avoid duplicate/conflicting jars after the update.
+    if read_manifest(&game_dir).is_none() {
+        let mods = game_dir.join("mods");
+        if mods.is_dir() {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let backup_root = game_dir.join(".jd-backup");
+            std::fs::create_dir_all(&backup_root).map_err(|e| e.to_string())?;
+            std::fs::rename(&mods, backup_root.join(format!("mods-{}", stamp)))
+                .map_err(|e| format!("Failed to back up old mods folder: {}", e))?;
+        }
     }
 
-    install_modpack(
-        app,
-        info.project_id.clone(),
-        latest.version_id.clone(),
-        profile.name.clone(),
-    )
-    .await
+    let installed = install_mrpack_into(app, &client, &version, &game_dir)
+        .await
+        .map_err(|e| {
+            format!(
+                "Update failed; the instance still points at the previous version. {}",
+                e
+            )
+        })?;
+
+    modify_profiles(|config| {
+        let p = config
+            .profiles
+            .iter_mut()
+            .find(|p| p.id == profile_id)
+            .ok_or("Profile was removed during the update")?;
+        p.version = installed.mc_version;
+        p.version_url = installed.version_url;
+        p.modloader = installed.modloader;
+        p.modloader_version = installed.modloader_version;
+        p.modpack_info = Some(InstalledModpackInfo {
+            project_id: info.project_id.clone(),
+            version_id: version.id.clone(),
+            version_name: version.version_number.clone(),
+        });
+        Ok(p.clone())
+    })
 }
 
 // Search mods/shaders/resource packs
@@ -634,10 +761,13 @@ pub async fn install_modrinth_content(
         .ok_or("No files in version")?;
 
     let expanded_game_dir = crate::helper::expand_path(&game_dir);
-    let target_dir = std::path::PathBuf::from(expanded_game_dir).join(&subfolder);
+    let target_dir = crate::helper::safe_join(std::path::Path::new(&expanded_game_dir), &subfolder)
+        .ok_or_else(|| format!("Invalid content folder: {}", subfolder))?;
     std::fs::create_dir_all(&target_dir).map_err(|e| format!("Failed to create dir: {}", e))?;
 
-    let target_path = target_dir.join(&primary_file.filename);
+    let target_path = crate::helper::safe_join(&target_dir, &primary_file.filename)
+        .filter(|p| p.parent() == Some(target_dir.as_path()))
+        .ok_or_else(|| format!("Invalid file name: {}", primary_file.filename))?;
 
     let bytes = client
         .get(&primary_file.url)
@@ -669,7 +799,11 @@ pub async fn install_modrinth_content(
 }
 
 // Helper: extract overrides from mrpack
-fn extract_overrides(mrpack_bytes: &[u8], game_dir: &str, prefix: &str) -> Result<(), String> {
+fn extract_overrides(
+    mrpack_bytes: &[u8],
+    game_dir: &std::path::Path,
+    prefix: &str,
+) -> Result<(), String> {
     let cursor = std::io::Cursor::new(mrpack_bytes);
     let mut archive = zip::ZipArchive::new(cursor).map_err(|e| e.to_string())?;
 
@@ -682,7 +816,12 @@ fn extract_overrides(mrpack_bytes: &[u8], game_dir: &str, prefix: &str) -> Resul
             if rel.is_empty() {
                 continue;
             }
-            let target = std::path::PathBuf::from(game_dir).join(rel);
+            // Reject zip-slip entries such as "overrides/../../evil".
+            if file.enclosed_name().is_none() {
+                return Err(format!("Modpack contains an unsafe path: {}", name));
+            }
+            let target = crate::helper::safe_join(game_dir, rel)
+                .ok_or_else(|| format!("Modpack contains an unsafe path: {}", name))?;
 
             if name.ends_with('/') {
                 std::fs::create_dir_all(&target).map_err(|e| e.to_string())?;
@@ -723,4 +862,47 @@ async fn get_mc_version_url(mc_version: &str) -> Result<String, String> {
     }
 
     Err(format!("MC version '{}' not found in manifest", mc_version))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_overrides;
+    use std::io::Write;
+
+    fn zip_with(entries: &[(&str, &str)]) -> Vec<u8> {
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut buf);
+            let opts = zip::write::SimpleFileOptions::default();
+            for (name, body) in entries {
+                zip.start_file(*name, opts).unwrap();
+                zip.write_all(body.as_bytes()).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        buf.into_inner()
+    }
+
+    #[test]
+    fn overrides_extract_normally() {
+        let dir = std::env::temp_dir().join(format!("jd-ovr-{}", uuid::Uuid::new_v4()));
+        let bytes = zip_with(&[("overrides/config/a.txt", "hi")]);
+        extract_overrides(&bytes, &dir, "overrides").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("config/a.txt")).unwrap(),
+            "hi"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn overrides_reject_zip_slip() {
+        let parent = std::env::temp_dir().join(format!("jd-slip-{}", uuid::Uuid::new_v4()));
+        let dir = parent.join("instance");
+        std::fs::create_dir_all(&dir).unwrap();
+        let bytes = zip_with(&[("overrides/../../evil.txt", "pwned")]);
+        assert!(extract_overrides(&bytes, &dir, "overrides").is_err());
+        assert!(!parent.join("evil.txt").exists());
+        std::fs::remove_dir_all(&parent).unwrap();
+    }
 }
